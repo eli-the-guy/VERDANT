@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VERDANT — Living World Simulator</title>
+<style>
+:root{color-scheme:dark;--bg:#07110f;--panel:#101f1b;--line:#29443a;--muted:#9ab4a5;--green:#7ee0a0;--gold:#f5ce70}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#1c4032 0,#0a1713 48%,#050b09 100%);color:#e9f5ec;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 24px;border-bottom:1px solid #29443a;background:#091511cc;backdrop-filter:blur(12px)}
+.brand{font-weight:900;letter-spacing:.18em;font-size:18px}.brand span{color:var(--green)}.sub{color:var(--muted);font-size:11px;letter-spacing:.12em}
+main{max-width:1450px;margin:auto;padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px}
+.stage{min-width:0;background:#0b1713;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 18px 60px #0008}
+canvas{display:block;width:100%;height:auto;aspect-ratio:16/10;cursor:crosshair}
+.stagefoot{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;color:var(--muted);font-size:12px;border-top:1px solid #20372e}
+aside{display:flex;flex-direction:column;gap:12px}.panel{background:linear-gradient(145deg,#14251f,#0c1915);border:1px solid var(--line);border-radius:14px;padding:14px}
+h2{margin:0 0 12px;font-size:12px;letter-spacing:.16em;color:#b6d4c2;text-transform:uppercase}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat{padding:9px;background:#091510;border:1px solid #20372e;border-radius:9px}.stat small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em}.stat strong{font-size:18px;font-variant-numeric:tabular-nums}
+.control{margin:11px 0}.control label{display:flex;justify-content:space-between;color:#c5d9cc;font-size:12px;margin-bottom:6px}.control output{color:var(--green);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:#79d99a}button,select{background:#183429;color:#e9f5ec;border:1px solid #3c6851;border-radius:9px;padding:9px 12px;font:inherit;cursor:pointer}button:hover{background:#214936}button.primary{background:#347c50;border-color:#60bd7c;font-weight:700}button.active{outline:2px solid var(--gold)}
+.actions{display:flex;flex-wrap:wrap;gap:7px}.hint{color:var(--muted);font-size:11px;margin-top:9px}
+.weather{display:flex;align-items:center;gap:10px}.weather .icon{font-size:28px}.weather strong{display:block;font-size:16px}.weather small{color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:11px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.barrow{display:flex;justify-content:space-between;font-size:11px;color:#c5d9cc;margin-top:10px}.bar{height:6px;background:#091510;border:1px solid #20372e;border-radius:4px;overflow:hidden;margin-top:3px}.bar i{display:block;height:100%;width:0;transition:width .3s}
+#log{max-height:110px;overflow:auto;color:#b2c9ba;font-size:11px}.logline{padding:3px 0;border-bottom:1px solid #20372e}
+@media(max-width:850px){main{grid-template-columns:1fr;padding:10px}aside{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.panel.wide{grid-column:1/-1}header{padding:14px}.brand{font-size:15px}}
+@media(max-width:520px){aside{grid-template-columns:1fr}canvas{aspect-ratio:4/3}.stagefoot{font-size:10px}}
+#fatal{display:none;position:fixed;inset:12px 12px auto;z-index:10;background:#381d1d;border:1px solid #b75b5b;color:#ffe5e5;padding:14px;border-radius:10px;white-space:pre-wrap;font:12px/1.4 ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div id="fatal" role="alert"></div>
+<header><div><div class="brand">🌱 <span>VERDANT</span></div><div class="sub">A SMALL, LIVING WORLD</div></div><div class="sub" id="dayLabel">DAY 1 · 06:00</div></header>
+<main>
+<section class="stage">
+<canvas id="world" width="960" height="600" aria-label="Interactive soil and plant simulation"></canvas>
+<div class="stagefoot"><span>Click soil to plant · click a plant to inspect it</span><span id="seasonLabel">SPRING · GROWING SEASON</span></div>
+</section>
+<aside>
+<div class="panel">
+<h2>World conditions</h2>
+<div class="weather"><div class="icon" id="weatherIcon">☀️</div><div><strong id="weatherName">Clear skies</strong><small id="weatherDesc">Warm sunlight · light breeze</small></div></div>
+<div class="stats" style="margin-top:12px">
+<div class="stat"><small>Air temperature</small><strong id="temp">12°C</strong></div>
+<div class="stat"><small>Humidity</small><strong id="humidity">48%</strong></div>
+<div class="stat"><small>Soil moisture</small><strong id="moisture">62%</strong></div>
+<div class="stat"><small>Sunlight</small><strong id="sunlight">0%</strong></div>
+<div class="stat"><small>Wind</small><strong id="windStat">5 km/h</strong></div>
+<div class="stat"><small>Soil fertility</small><strong id="fertStat">50%</strong></div>
+</div>
+</div>
+<div class="panel">
+<h2>Simulation controls</h2>
+<div class="control"><label for="speed">Simulation speed <output id="speedOut">6×</output></label><input id="speed" type="range" min="0" max="100" step=".5" value="6"></div>
+<div class="actions"><button id="pauseBtn">Ⅱ Pause</button><button id="stepBtn">Step +1 hour</button><button id="resetBtn">↻ New world</button><button id="tlBtn">⏩ Fast time-lapse</button><button id="gustBtn">💨 Gust of wind</button></div>
+<div class="hint">At 1×, one real second equals one in-game hour. Higher speeds scale proportionally. At 0× the world is paused.</div>
+</div>
+<div class="panel">
+<h2>Plant a seed</h2>
+<div class="control"><label for="seedType">Seed variety</label><select id="seedType" style="width:100%"><option value="wildflower">Wildflower · balanced</option><option value="sunflower">Sunflower · sun-loving</option><option value="fern">Fern · shade & moisture</option><option value="cactus">Cactus · drought tolerant</option><option value="oak">Oak sapling · slow & sturdy</option><option value="clover">Clover · low-growing</option><option value="lavender">Lavender · branching flowers</option><option value="tomato">Tomato · fruiting plant</option><option value="grass">Meadow grass · quick spread</option><option value="dandelion">Dandelion · wind-blown seeds</option><option value="tulip">Tulip · spring bloomer</option><option value="poppy">Poppy · nodding red flowers</option><option value="daisy">Daisy · cheerful &amp; hardy</option><option value="bamboo">Bamboo · spreads by rhizome</option></select></div>
+<div class="actions"><button class="primary" id="plantBtn">＋ Plant seed</button><button id="clearBtn">Clear plants</button></div>
+<div class="hint">Choose a variety, then click the soil in the scene. Seeds germinate underground first, so give them a little time.</div>
+</div>
+<div class="panel wide">
+<h2>Plant biology</h2>
+<div class="stats">
+<div class="stat"><small>Plants alive</small><strong id="plantCount">0</strong></div>
+<div class="stat"><small>Growth stage</small><strong id="stageName">—</strong></div>
+<div class="stat"><small>Seeds in world</small><strong id="seedCount">0</strong></div>
+<div class="stat"><small>Pollinators</small><strong id="bugCount">0</strong></div>
+</div>
+<div class="barrow"><span>Health</span><span id="vHealth">—</span></div><div class="bar"><i id="barHealth" style="background:#7ee0a0"></i></div>
+<div class="barrow"><span>Hydration</span><span id="vWater">—</span></div><div class="bar"><i id="barWater" style="background:#70bce8"></i></div>
+<div class="barrow"><span>Stored energy</span><span id="vEnergy">—</span></div><div class="bar"><i id="barEnergy" style="background:#f5ce70"></i></div>
+<div class="hint" id="bioText">No seeds planted yet. Try planting one in the soil.</div>
+<div class="legend" style="margin-top:12px"><span><i class="dot" style="background:#5dbd74"></i>Leaves</span><span><i class="dot" style="background:#d8c18b"></i>Roots</span><span><i class="dot" style="background:#6b9e50"></i>Stem</span><span><i class="dot" style="background:#70bce8"></i>Water</span></div>
+</div>
+<div class="panel wide"><h2>World log</h2><div id="log"><div class="logline">The world is ready. Waiting for a seed…</div></div></div>
+</aside>
+</main>
+<script>
+window.addEventListener('error',e=>{const box=document.getElementById('fatal');if(box){box.style.display='block';box.textContent='VERDANT encountered an error:\n'+(e.message||'Unknown error')+'\nTry reopening this file in Chrome or Safari.';}});
+(()=>{
+const canvas=document.getElementById('world'),ctx=canvas.getContext('2d'),W=canvas.width,CH=canvas.height,soilY=390;
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t,rand=(a,b)=>a+Math.random()*(b-a);
+let plants=[],seeds=[],particles=[],splashes=[],fall=[],clouds=[],bugs=[],flies=[],worms=[],
+ time=6*3600,day=1,speed=6,paused=false,selected='wildflower',sel=null,last=performance.now(),
+ weather='clear',weatherTimer=0,moisture=62,humidity=48,temp=12.5,rain=0,wind=.18,windDir=1,windS=1,gust=.5,windNow=.2,
+ light=0,fertility=50,clockT=0,drain=0,dew=0,fold=0,dlNow=0,LD='#244d36',LS=0,frostA=0,g_bs=1,wisps=[],gustBoost=0,MAXP=60;
+/* rt = root style (tap / fib), simple = no side branches, seeds = seeds released per season */
+const V={
+ wildflower:{name:'Wildflower',stem:'#5d9e58',leaf:'#65c879',needLight:.45,needWater:.35,rate:1,root:1,flower:'#f3cf69',season:[1.05,1.1,.9,.45],seeds:6,h:1,photo:.5,flex:1,float:.8,annual:1,decid:1,bloom:1,rt:'tap'},
+ sunflower:{name:'Sunflower',stem:'#639b45',leaf:'#56b966',needLight:.68,needWater:.42,rate:1.05,root:.85,flower:'#ffc94f',season:[.9,1.2,.8,.3],seeds:7,h:1.25,photo:1,flex:.45,float:.2,annual:1,decid:1,bloom:1,rt:'tap'},
+ fern:{name:'Fern',stem:'#43875d',leaf:'#62b985',needLight:.25,needWater:.7,rate:.9,root:1.15,flower:'#91c9a4',season:[.9,.8,1,.7],seeds:8,h:.6,photo:.12,flex:1.2,float:1.2,wp:1,simple:1,rt:'fib'},
+ cactus:{name:'Cactus',stem:'#438f73',leaf:'#4ba98a',needLight:.72,needWater:.12,rate:.72,root:.65,flower:'#f0a4b5',season:[.7,1.25,.9,.4],seeds:3,h:.5,photo:.04,flex:.05,float:0,bloom:1,simple:1,rt:'fib'},
+ oak:{name:'Oak sapling',stem:'#806044',leaf:'#4f9b55',needLight:.55,needWater:.48,rate:.58,root:1.5,flower:'#b2cc65',season:[1,.95,.85,.35],seeds:4,h:1.15,photo:.3,flex:.3,float:.1,decid:1,wp:1,rt:'tap'},
+ clover:{name:'Clover',stem:'#559b58',leaf:'#69c979',needLight:.38,needWater:.58,rate:1.18,root:1.1,flower:'#f2d7e6',season:[1.1,.9,1,.45],seeds:8,h:.25,photo:.2,flex:.6,float:.5,bloom:1,simple:1,rt:'fib'},
+ lavender:{name:'Lavender',stem:'#548a54',leaf:'#76ad67',needLight:.7,needWater:.28,rate:.88,root:.9,flower:'#b69be8',season:[.85,1.2,.8,.3],seeds:7,h:.75,photo:.4,flex:.9,float:.6,bloom:1,simple:1,rt:'tap'},
+ tomato:{name:'Tomato',stem:'#57934d',leaf:'#63b65f',needLight:.68,needWater:.58,rate:.92,root:1,flower:'#f3d77b',season:[.8,1.3,.7,.2],seeds:5,h:.85,photo:.5,flex:.7,float:0,annual:1,decid:1,bloom:1,rt:'tap'},
+ grass:{name:'Meadow grass',stem:'#76a94e',leaf:'#8bc75b',needLight:.5,needWater:.45,rate:1.35,root:.8,flower:'#d6c98a',season:[1.1,.95,1,.5],seeds:10,h:.55,photo:.15,flex:1.8,float:1,wp:1,simple:1,rt:'fib'},
+ dandelion:{name:'Dandelion',stem:'#6aa35a',leaf:'#6fbb62',needLight:.55,needWater:.4,rate:1.1,root:1.2,flower:'#ffd43b',season:[1.1,1,1,.5],seeds:9,h:.6,photo:.2,flex:1.1,float:1.3,bloom:1,wp:1,simple:1,rt:'tap'},
+ tulip:{name:'Tulip',stem:'#5f9a58',leaf:'#4fae78',needLight:.55,needWater:.45,rate:.95,root:.8,flower:'#e0457b',season:[1.2,.85,.7,.35],seeds:4,h:.7,photo:.35,flex:.7,float:.2,bloom:1,simple:1,rt:'fib'},
+ poppy:{name:'Poppy',stem:'#74a85a',leaf:'#7cc069',needLight:.65,needWater:.3,rate:1.15,root:.9,flower:'#e8412e',season:[1,1.2,.7,.2],seeds:8,h:.8,photo:.5,flex:1.4,float:.7,annual:1,bloom:1,simple:1,rt:'tap'},
+ daisy:{name:'Daisy',stem:'#6aa65a',leaf:'#6bbf72',needLight:.5,needWater:.4,rate:1.1,root:.8,flower:'#f7f6ee',season:[1.1,1.1,.95,.4],seeds:6,h:.45,photo:.3,flex:.9,float:.6,bloom:1,simple:1,rt:'fib'},
+ bamboo:{name:'Bamboo',stem:'#7ab04c',leaf:'#6fbf4f',needLight:.6,needWater:.55,rate:1.5,root:1,flower:'#d6c98a',season:[1.2,1.2,.9,.5],seeds:0,h:1.6,photo:.3,flex:1.3,float:0,simple:1,rt:'fib'}
+};
+const FIRST_FLOWER={oak:48,fern:25,bamboo:99999,tulip:20,poppy:14};
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function qpt(x0,y0,cx,cy,x1,y1,t){const m=1-t;return[m*m*x0+2*m*t*cx+t*t*x1,m*m*y0+2*m*t*cy+t*t*y1]}
+const rgbCache={};
+function rgb(h){return rgbCache[h]||(rgbCache[h]=[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)])}
+function mixc(base,list){let c=rgb(base).slice();for(const e of list){const t=e[1];if(!(t>0))continue;const o=rgb(e[0]);c=[lerp(c[0],o[0],t),lerp(c[1],o[1],t),lerp(c[2],o[2],t)]}return `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`}
+const soilNoise=[];for(let i=0;i<W;i+=4)soilNoise.push(Math.random());
+function log(s){const el=document.createElement('div');el.className='logline';el.textContent=`Day ${day}: ${s}`;$('log').prepend(el);while($('log').children.length>8)$('log').lastChild.remove()}
+function seasonIndex(){return Math.floor(((day-1)%48)/12)}
+function seasonName(){return ['Spring','Summer','Autumn','Winter'][seasonIndex()]}
+function seasonDayLength(){return [12.5,14,10.5,8.5][seasonIndex()]}
+function sunAltitude(hour){const sr=12-seasonDayLength()/2,ss=12+seasonDayLength()/2;if(hour<sr||hour>ss)return 0;return Math.sin((hour-sr)/(ss-sr)*Math.PI)}
+function sunPos(h){const sr=12-seasonDayLength()/2,ss=12+seasonDayLength()/2,f=clamp((h-sr)/(ss-sr),0,1);return{x:80+f*800,y:285-sunAltitude(h)*190,up:h>sr&&h<ss}}
+function ph(p){return p.germ<1?0:8+p.stem*150*V[p.type].h*p.g.h}
+function alivePlants(){return plants.filter(p=>p.state!=='dead')}
+function newWorld(){plants=[];seeds=[];particles=[];splashes=[];fall=[];bugs=[];flies=[];sel=null;time=6*3600;day=1;moisture=62;humidity=48;temp=12.5;weather='clear';weatherTimer=0;rain=0;wind=.18;light=0;fertility=50;
+ clouds=Array.from({length:5},()=>({x:rand(-100,W),y:rand(40,170),s:rand(.6,1.5)}));
+ worms=Array.from({length:4},()=>({x:rand(40,W-40),y:soilY+rand(30,170),a:rand(0,6.28),ph:rand(0,6.28)}));
+ log('A fresh ecosystem begins.')}
+function plant(x,type,fromSeed,shoot){
+ if(x<15||x>W-15)return false;
+ if(alivePlants().length>=MAXP){if(!fromSeed)log('The ground is full — no room for more plants.');return false}
+ type=type||selected;
+ if(plants.some(q=>q.state!=='dead'&&Math.abs(q.x-x)<(fromSeed?12:9)))return false;
+ const p={x,type,age:0,health:100,water:.6,energy:.4,stem:0,germ:shoot?1:0,state:'alive',deadT:0,branches:[],roots:[],buds:[],seedsMade:0,seedTimer:0,pollinated:false,fruit:0,rz:0,
+  g:{h:rand(.88,1.12),lean:rand(-.06,.06)},lean:0,headA:0,phase:rand(0,6.28),leaf:1,sway:0,droop:0,dd:Math.random()<.5?-1:1,shade:0};
+ plants.push(p);if(!fromSeed)sel=p;
+ log(shoot?`A new ${V[type].name.toLowerCase()} shoot sprouted from the rhizome.`:fromSeed?`A ${V[type].name.toLowerCase()} seed took root.`:`${V[type].name} seed planted.`);return true}
+function stageOf(p){
+ if(p.state==='dead')return 'Decaying';if(p.germ<1)return 'Germinating';if(p.state==='dying')return 'Senescing';
+ if(p.seedsMade>0)return 'Seeding';if(p.buds.length&&p.buds[0].open>.5)return 'Flowering';if(p.buds.length)return 'Budding';
+ if(p.age<3)return 'Seedling';if(p.age<10)return 'Sprout';if(p.age<22)return 'Young';return 'Mature'}
+
+/* ---------- geometry helpers ---------- */
+function stemPt(p,t,H){const v=V[p.type],t2=t*t;
+ const wob=Math.sin(t*3.2+p.phase)*H*.035*t*(p.type==='cactus'?.2:1);
+ const nut=Math.sin(clockT*.9+p.phase)*H*.028*t2*t;
+ const x=p.x+(p.lean*H+p.sway*v.flex*H*.1+p.dd*p.droop*H*.45)*t2+wob+nut;
+ const y=soilY-H*t*(1-p.droop*.3*t)+Math.cos(clockT*.9+p.phase)*H*.01*t2*t;return[x,y]}
+function fanPt(p,t,Lh,a){const q=stemPt(p,t,Lh);return[q[0]+Math.sin(a)*Lh*.55*t*t,q[1]+Lh*t*(1-Math.cos(a))*.5]}
+function branchGeom(p,i,H){const b=p.branches[i],bt=Math.min(.86,.2+i*.07),o=stemPt(p,bt,H);
+ const L=b.len*(12+H*.22)*(p.type==='sunflower'?.65:p.type==='oak'?1.15:1);
+ const el=Math.max(-.6,b.angle-p.droop*1.1)+Math.sin(clockT*1.3+i+p.phase)*.04*windNow;
+ const heavy=p.type==='oak'?.5:p.type==='tomato'?.35:.15;
+ return{ox:o[0],oy:o[1],tx:o[0]+b.side*L*Math.cos(el)*.9+p.sway*L*.04*V[p.type].flex,ty:o[1]-L*Math.sin(el)*.9+L*heavy*(1+p.droop*.6),L,el,side:b.side}}
+function flowerPos(p,b){const H=ph(p);
+ if(!V[p.type].simple&&b.br>=0&&p.branches[b.br]){const g=branchGeom(p,b.br,H);return[g.tx,g.ty]}
+ return stemPt(p,1,H)}
+const ld=(s,e)=>s>0?-e:Math.PI+e;
+
+/* ---------- simulation ---------- */
+function update(dt,rdt){
+ time+=dt;
+ while(time>=86400){time-=86400;day++;
+  if((day-1)%12===0)log(`${seasonName()} begins.`);
+  if((day-1)%48===0)for(const p of plants)if(!V[p.type].annual&&p.state==='alive'){p.seedsMade=0;p.seedTimer=0;p.pollinated=false}}
+ const hour=time/3600,season=seasonIndex(),alt=sunAltitude(hour),hours=dt/3600;
+ const cloudF=weather==='cloudy'?.58:weather==='rain'?.32:weather==='heat'?.9:1;
+ light=clamp(alt*100*cloudF*[1,1.12,.82,.58][season],0,100);
+ const tT=10+alt*15+[2,7,-2,-9][season]+(weather==='rain'?-3:weather==='heat'?7:weather==='cloudy'?-1:0)+Math.sin(day*.4)*1.5;
+ temp+=(tT-temp)*Math.min(1,hours*.6);
+ const hT=(weather==='rain'?92:weather==='cloudy'?66:weather==='heat'?26:46)+(1-clamp(alt*3,0,1))*16-alt*10;
+ humidity=clamp(humidity+(hT-humidity)*Math.min(1,hours*.15),18,100);
+ weatherTimer-=dt;
+ if(weatherTimer<=0){
+  const r=Math.random(),rc=[.30,.12,.34,.22][season],cc=[.24,.18,.30,.48][season],hc=season===1?.20:.04;
+  weather=r<rc?'rain':r<rc+cc?'cloudy':r<rc+cc+hc?'heat':'clear';
+  weatherTimer=rand(4*3600,10*3600);windDir=Math.random()<.5?-1:1;
+  if(weather==='rain')log('Rain begins to replenish the soil.');else if(weather==='heat')log('A warm spell increases evaporation.');}
+ rain=weather==='rain'?1:0;wind=weather==='heat'?.85:weather==='rain'?.55:weather==='cloudy'?.4:.28;
+ /* rain soaks in, the soil drains by gravity and dries by evaporation, so moisture settles mid-range */
+ moisture=clamp(moisture+rain*hours*3.4-hours*(moisture*.013+(.08+Math.max(0,temp)*.006+light*.0022)*(1.4-humidity/100)),0,100);
+ /* soil life (worms, fungi, microbes) slowly rebuilds nutrients */
+ fertility+=(55-fertility)*hours*.004;
+ drain=0;
+ for(const p of plants){
+  const v=V[p.type];
+  if(p.state==='dead'){p.deadT+=hours;if(p.deadT>70){p.remove=true;fertility=Math.min(100,fertility+1.5)}continue}
+  if(p.germ<1){
+   const ok=moisture>12&&temp>1&&temp<38;
+   if(ok)p.germ=Math.min(1,p.germ+hours*v.rate/8);else p.health-=hours*.015;
+   if(p.germ>=1)log(`${v.name} broke through the soil.`);
+   if(p.health<=0){p.state='dead';p.deadT=60;log(`A ${v.name.toLowerCase()} seed failed to germinate.`)}
+   continue}
+  const myH=ph(p);let shade=0;
+  for(const q of plants){if(q===p||q.state==='dead'||q.germ<1)continue;const d=Math.abs(q.x-p.x);if(d<50){const dh=ph(q)-myH;if(dh>8)shade+=.3*(1-d/50)*Math.min(1,dh/60)}}
+  shade=Math.min(.75,shade);p.shade=shade;
+  const lightEff=light/100*(1-shade);
+  const lightFit=Math.max(0,1-Math.abs(lightEff-v.needLight*.9)/.78);
+  const tempFit=Math.max(.05,1-Math.abs(temp-20)/38),fertFit=.6+.4*fertility/100;
+  /* a wide comfort band around the preferred moisture; only the extremes hurt */
+  const waterFit=Math.max(.12,1-Math.max(0,Math.abs(moisture/100-v.needWater)-.22)/.6)*(.3+.7*Math.min(1,p.water/.45));
+  const photo=lightEff*(.35+.65*lightFit)*tempFit*waterFit*v.season[season]*fertFit*(.4+.6*p.leaf);
+  /* hydration: roots draw from soil, leaves lose water */
+  const size=.3+.7*Math.min(1,p.age/20);
+  const rootSz=Math.min(1,.35+p.roots.reduce((s,r)=>s+r.len,0)/6)*v.root;
+  const supply=clamp(moisture/100*2.2,0,1)*Math.min(1,rootSz)*.9;
+  const demand=(.1+light/100*.3+Math.max(0,temp-22)*.012)*(v.needWater>.2?1:.35)*size*(.5+.5*p.leaf);
+  p.water=clamp(p.water+(supply-demand)*hours*.4,0,1);
+  drain+=Math.min(1,rootSz)*demand*hours*.04;
+  /* seedlings are fragile but forgiving; established plants shrug off short dry spells */
+  const hardy=p.age<4?.5:1;
+  const stress=((p.water<.1?.8:0)+(temp>39?.6:0)+(temp<-6?.5:0)+(moisture>97&&v.needWater<.3?.3:0))*hardy;
+  const wasDying=p.state==='dying';
+  if(wasDying)p.health-=hours*.3;
+  else{
+   let dh;if(stress>0)dh=-(.05+stress*.18);else if(alt>.1)dh=photo>.03?.14:.02;else dh=.06;
+   p.health=clamp(p.health+dh*hours,0,100);
+   let growth=1.4*v.rate*photo*hours*clamp(p.health/60,.25,1);
+   p.energy=clamp(p.energy+photo*hours*.5-.012*hours,0,1);
+   if(alt<.05&&p.water>.3&&p.energy>.12&&temp>5){const g2=v.rate*.18*hours*p.energy*fertFit*v.season[season];growth+=g2;p.energy-=g2*.2}
+   p.age+=growth;fertility=Math.max(8,fertility-growth*.012);
+  }
+  const oak=p.type==='oak';
+  p.stem=Math.min(1,p.age/(oak?70:34));
+  const desired=Math.min(oak?12:10,Math.floor(p.age/(oak?5:3.2)));
+  while(p.branches.length<desired){p.branches.push({side:p.branches.length%2?1:-1,len:0,angle:rand(.35,.7),arch:rand(.8,1.3),
+   tw:[{t:rand(.38,.55),L:rand(.3,.42),rel:rand(.35,.7)},{t:rand(.66,.82),L:rand(.22,.34),rel:-rand(.15,.45)}]})}
+  p.branches.forEach((b,i)=>b.len=Math.min(1,Math.max(0,(p.age-(i+1)*(oak?5:3.2))/5)));
+  const rc=Math.min(9,Math.floor(p.age/2.8)+1);
+  while(p.roots.length<rc)p.roots.push({side:Math.random()<.5?-1:1,len:0,angle:rand(.3,1)});
+  p.roots.forEach((r,i)=>r.len=Math.min(1,Math.max(0,(p.age-i*2.8)/8)));
+  /* leaves: autumn drop for deciduous, spring flush */
+  const tl=(v.decid&&season===3?0:(v.decid&&season===2?.75:1))*(p.state==='dying'?.5:1);
+  if(p.leaf>tl){const d=Math.min(p.leaf-tl,hours*.05);p.leaf-=d;
+   if(fall.length<120&&p.stem>.15&&Math.random()<Math.min(1,d*60*p.stem)){const hh=ph(p);fall.push({x:p.x+rand(-22,22),y:soilY-hh*rand(.25,.95),vy:rand(18,34),ph:rand(0,6.28),rot:rand(0,6.28),vr:rand(-2,2),landed:false,t:0,c:p.type})}}
+  else p.leaf=Math.min(tl,p.leaf+hours*.03);
+  /* flowering */
+  const fa=FIRST_FLOWER[p.type]||18;
+  if(p.state==='alive'&&p.age>fa){
+   const want=1+((p.type==='wildflower'||p.type==='tomato')?Math.min(3,Math.floor((p.age-fa)/7)):0);
+   while(p.buds.length<want)p.buds.push({mat:0,open:0,br:p.buds.length===0?-1:Math.min(p.branches.length-1,p.buds.length*2-1)});}
+  const wantOpen=(alt>.15&&temp>8&&!rain)?1:0;
+  for(const b of p.buds){b.mat=Math.min(1,b.mat+hours*.08);b.open+=(wantOpen*b.mat-b.open)*Math.min(1,hours*.5)}
+  if(p.type==='tomato'&&p.pollinated&&p.buds.length&&p.state==='alive')p.fruit=Math.min(1,p.fruit+hours*.025*(photo>.05?1:.2));
+  /* seed / spore release from the top of the plant */
+  /* bamboo spreads by rhizome instead of seed */
+  if(p.type==='bamboo'&&p.state==='alive'&&p.age>20){
+   p.rz+=hours*Math.max(.15,photo)*2;
+   if(p.rz>=22&&alivePlants().length<MAXP&&plants.filter(q=>q.type==='bamboo'&&q.state!=='dead').length<8){p.rz=0;plant(clamp(p.x+(Math.random()<.5?-1:1)*rand(24,55),18,W-18),'bamboo',true,true)}}
+  /* seed / spore release: wind shakes them loose, so breezy days disperse faster */
+  if(p.state==='alive'&&p.age>fa+12&&p.seedsMade<v.seeds&&p.buds.length){
+   p.seedTimer+=hours*((p.pollinated||v.wp)?1:.5)*(1+windNow*2.2);
+   if(p.seedTimer>=3){p.seedTimer=0;p.seedsMade++;
+    const top=stemPt(p,1,ph(p)),n=p.type==='fern'?2:1;
+    for(let k=0;k<n;k++)seeds.push({x:top[0]+rand(-6,6),y:top[1]+rand(0,8),vx:windS*windNow*60*V[p.type].float+rand(-10,10),vy:rand(-26,-6),type:p.type,age:0,landed:false,wait:rand(3,9),rot:rand(0,6.28)});
+    if(p.seedsMade===1||p.seedsMade===v.seeds)log(`${v.name} released ${p.type==='fern'?'spores':'seeds'}${windNow>.5?' on the wind':''}.`)}}
+  if(p.state==='alive'&&v.annual&&p.seedsMade>=v.seeds){p.state='dying';log(`${v.name} is finishing its life cycle.`)}
+  if(p.health<=0){p.state='dead';p.deadT=0;log(wasDying?`${v.name} completed its life cycle and is returning to the soil.`:`${v.name} wilted from environmental stress.`)}
+ }
+ moisture=clamp(moisture-drain,0,100);
+ if(plants.some(p=>p.remove)){plants=plants.filter(p=>!p.remove);if(sel&&!plants.includes(sel))sel=null}
+ /* seeds: wind-borne drift, landing, dormancy and germination */
+ for(const s of seeds){
+  if(!s.landed){const fl=V[s.type].float;
+   /* wind carries seeds sideways, gusts lift them, light fluffy seeds travel furthest */
+   s.vx+=(windS*windNow*430*fl-s.vx)*Math.min(1,rdt*1.6);
+   s.vy+=(70-s.vy*(.7+3*fl)-Math.max(0,gust-.45+gustBoost)*170*fl*(1+Math.sin(clockT*3+s.rot)*.5))*rdt;
+   s.x+=s.vx*rdt;s.y+=s.vy*rdt;s.rot+=s.vx*rdt*.05;
+   if(s.y<40){s.y=40;s.vy=Math.abs(s.vy)*.3}
+   if(s.y>=soilY-4){s.y=soilY-4;s.landed=true;s.vx=0}
+   if(s.x<10){s.x=10;s.vx=Math.abs(s.vx)*.4}else if(s.x>W-10){s.x=W-10;s.vx=-Math.abs(s.vx)*.4}}
+  else s.age+=hours}
+ for(const s of seeds){
+  if(s.gone||!s.landed)continue;
+  if(s.age>=s.wait&&moisture>14&&moisture<96&&temp>2&&temp<37&&alivePlants().length<MAXP){
+   /* seedlings need elbow room: skip spots that are already crowded, so gaps stay open for other species */
+   const wd=V[s.type].annual?1:0;let near=0,tooClose=false;for(const p of plants){if(p.state==='dead')continue;const d=Math.abs(p.x-s.x);if(d<16-wd*6)tooClose=true;if(d<48)near++}
+   if(!tooClose&&near<4+wd*3){plant(clamp(s.x,18,W-18),s.type,true);s.gone=true;continue}}
+  if(s.age>(V[s.type].annual?900:480))s.gone=true}
+ seeds=seeds.filter(s=>!s.gone);
+}
+
+/* ---------- per-frame life: wind, sway, insects, particles ---------- */
+function flowerList(){const fl=[];for(const p of plants){if(p.state!=='alive'||p.germ<1||!V[p.type].bloom)continue;for(const b of p.buds)if(b.open>.55)fl.push({p,b})}return fl}
+function animate(rdt){
+ clockT+=rdt;
+ const hour=time/3600,alt=sunAltitude(hour),sp=sunPos(hour),dl=clamp(alt*3,0,1);dlNow=dl;fold=(1-dl)*.7;
+ gust=lerp(gust,clamp(.5+Math.sin(clockT*.37)*.28+Math.sin(clockT*.93+2)*.22+Math.sin(clockT*2.1)*.08,0,1),Math.min(1,rdt*1.2));
+ windS+=(windDir-windS)*Math.min(1,rdt*.3);
+ gustBoost=Math.max(0,gustBoost-rdt/7);
+ windNow=wind*(.4+gust*1.1)+gustBoost*.9;
+ /* wind streaks make the air itself visible */
+ if(rdt>0){const wr=windNow*windNow*26*rdt;if(wisps.length<70&&Math.random()<wr)wisps.push({x:windS>0?-30:W+30,y:rand(60,soilY-14),l:rand(24,70),v:rand(.7,1.3),ph:rand(0,6.28),a:rand(.5,1)});
+  for(const q of wisps){q.x+=windS*windNow*330*q.v*rdt;q.y+=Math.sin(clockT*2+q.ph)*8*rdt}
+  wisps=wisps.filter(q=>q.x>-90&&q.x<W+90)}
+ if(gustBoost>.35&&rdt>0)for(const p of plants)if(p.state==='alive'&&p.buds.length&&p.seedsMade<V[p.type].seeds&&Math.random()<rdt*1.5)p.seedTimer=Math.max(p.seedTimer,2.9);
+ dew=weather==='rain'?0:clamp((humidity-60)/20,0,1)*(1-clamp(alt*2.2,0,1));
+ frostA=clamp((3-temp)/3,0,1)*(1-clamp(alt*3,0,1)*.6);
+ for(const c of clouds){c.x+=windNow*windS*c.s*10*rdt*Math.pow(Math.max(1,speed),.7);if(c.x>W+120)c.x=-140;if(c.x<-140)c.x=W+120}
+ if(rain&&rdt>0){const n=Math.ceil(rdt*160);for(let i=0;i<n&&particles.length<500;i++)particles.push({x:rand(-20,W+20),y:rand(-30,0),vy:rand(380,560),vx:windS*windNow*120})}
+ for(const q of particles){q.x+=q.vx*rdt;q.y+=q.vy*rdt;if(q.y>=soilY){q.hit=true;if(splashes.length<80)splashes.push({x:q.x,t:0})}}
+ particles=particles.filter(q=>!q.hit);
+ for(const s of splashes)s.t+=rdt*3.5;splashes=splashes.filter(s=>s.t<1);
+ for(const l of fall){if(!l.landed){l.y+=l.vy*rdt;l.x+=(Math.sin(clockT*2+l.ph)*28+windS*windNow*50)*rdt;l.rot+=l.vr*rdt;if(l.y>=soilY-2){l.y=soilY-2;l.landed=true;fertility=Math.min(100,fertility+.05)}}else l.t+=rdt}
+ fall=fall.filter(l=>!(l.landed&&l.t>40));
+ for(const p of plants){
+  const v=V[p.type];
+  p.sway=windS*windNow*1.25+(Math.sin(clockT*1.5+p.phase)*.6+Math.sin(clockT*2.9+p.phase*1.7)*.4)*windNow*.9;
+  const lt=(sp.up&&light>3)?clamp((sp.x-p.x)/650,-1,1)*v.photo*.22*(.4+.6*light/100):0;
+  const tlk=Math.max(1,Math.min(speed,10));
+  p.lean+=(lt+p.g.lean-p.lean)*Math.min(1,rdt*.35*tlk);
+  const ht=sp.up?clamp((sp.x-p.x)/500,-.8,.8):-.7;
+  p.headA+=(ht-p.headA)*Math.min(1,rdt*.5*tlk);
+  const dtar=p.state==='dead'?1:p.state==='dying'?.45:clamp((.38-p.water)/.38,0,1)*(p.type==='cactus'?.15:1);
+  p.droop+=(dtar-p.droop)*Math.min(1,rdt*.8)}
+ /* pollinators */
+ const fl=flowerList();
+ const want=(dl>.35&&temp>11&&weather!=='rain')?Math.min(8,Math.ceil(fl.length*1.3)):0;
+ /* insects live on the world's clock: they fly faster, visit more flowers and come and go with the sped-up days */
+ const bs=speed>0?clamp(Math.pow(speed,.6),.3,7):0,bdt=rdt*bs;g_bs=bs;
+ if(bdt>0&&bugs.length<want&&Math.random()<bdt*1.2){const l=Math.random()<.5;bugs.push({x:l?-12:W+12,y:rand(110,280),kind:Math.random()<.5?'bee':'butterfly',t:null,linger:0,ph:rand(0,6.28),face:l?1:-1,leaving:false,side:1,hue:Math.floor(rand(0,4))})}
+ for(let i=bugs.length-1;i>=0;i--){const g=bugs[i];
+  if(bdt<=0)break;
+  if(bugs.length>want&&!g.leaving&&Math.random()<bdt*.5){g.leaving=true;g.side=Math.random()<.5?-1:1}
+  if(g.leaving){g.x+=g.side*60*bdt;g.y-=15*bdt;g.face=g.side;if(g.x<-30||g.x>W+30)bugs.splice(i,1);continue}
+  if(!g.t||!fl.some(f=>f.b===g.t.b)){const f=fl.length?fl[Math.floor(Math.random()*fl.length)]:null;g.t=f;g.linger=0}
+  const wd=windS*windNow*34*bdt;
+  if(!g.t){g.x+=Math.cos(clockT*.8+g.ph)*20*bdt+wd;g.y+=Math.sin(clockT*1.1+g.ph)*14*bdt;continue}
+  const pos=flowerPos(g.t.p,g.t.b),tx=pos[0],ty=pos[1]-4,dx=tx-g.x,dy=ty-g.y,d=Math.hypot(dx,dy)||1;
+  g.face=dx>=0?1:-1;
+  if(d>7){const sp2=g.kind==='bee'?95:55;g.x+=dx/d*sp2*bdt+Math.cos(clockT*7+g.ph)*26*bdt+wd;g.y+=dy/d*sp2*bdt+Math.sin(clockT*9+g.ph)*30*bdt}
+  else{g.linger+=bdt;g.x+=Math.sin(clockT*20+g.ph)*6*bdt;
+   if(g.linger>1.5){if(!g.t.p.pollinated){g.t.p.pollinated=true;log(`A ${g.kind==='bee'?'bee':'butterfly'} pollinated a ${V[g.t.p.type].name.toLowerCase()}.`)}g.t=null;g.linger=0}}}
+ /* fireflies on warm nights */
+ const wantF=(dl<.15&&temp>8&&seasonIndex()!==3)?14:0;
+ if(rdt>0&&flies.length<wantF&&Math.random()<rdt*2)flies.push({x:rand(20,W-20),y:rand(soilY-160,soilY-15),a:rand(0,6.28),ph:rand(0,6.28),k:0});
+ for(let i=flies.length-1;i>=0;i--){const f=flies[i];f.a+=Math.sin(clockT*.7+f.ph)*rdt*3;f.x+=Math.cos(f.a)*14*rdt;f.y+=Math.sin(f.a)*10*rdt-Math.sin(clockT+f.ph)*3*rdt;
+  f.y=clamp(f.y,soilY-190,soilY-8);if(f.x<10)f.x=10;if(f.x>W-10)f.x=W-10;
+  f.k=clamp(f.k+(wantF?1:-1)*rdt*.6,0,1);if(!wantF&&f.k<=0)flies.splice(i,1)}
+ /* worms */
+ for(const w of worms){w.ph+=rdt*3;w.a+=Math.sin(clockT*.3+w.x)*rdt*.8;const sp2=moisture>20?7:1.5;w.x+=Math.cos(w.a)*sp2*rdt;w.y+=Math.sin(w.a)*sp2*.5*rdt;
+  if(w.x<30||w.x>W-30)w.a=Math.PI-w.a;if(w.y<soilY+25||w.y>CH-18)w.a=-w.a;w.x=clamp(w.x,25,W-25);w.y=clamp(w.y,soilY+22,CH-15)}
+}
+
+/* ---------- drawing ---------- */
+function drawSky(){
+ const h=time/3600,alt=sunAltitude(h),dl=clamp(alt*3,0,1),night=1-dl;
+ const sr=12-seasonDayLength()/2,ss=12+seasonDayLength()/2,dusk=Math.max(0,1-Math.abs(h-sr)/1.6,1-Math.abs(h-ss)/1.6);
+ const g=ctx.createLinearGradient(0,0,0,soilY);
+ g.addColorStop(0,`rgb(${Math.round(8+dl*80+dusk*40)},${Math.round(18+dl*130-dusk*30)},${Math.round(35+dl*155-dusk*30)})`);
+ g.addColorStop(1,`rgb(${Math.round(25+dl*100+dusk*130)},${Math.round(42+dl*120+dusk*30)},${Math.round(46+dl*75-dusk*10)})`);
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,soilY);
+ if(night>.4){ctx.fillStyle='#e6efff';for(let i=0;i<90;i++){const x=(i*137.5)%W,y=(i*71.3)%260;ctx.globalAlpha=night*(.45+.55*Math.sin(clockT*1.7+i));ctx.fillRect(x,y,1.5,1.5)}ctx.globalAlpha=1}
+ const sp=sunPos(h);
+ if(dl>.02){ctx.save();ctx.globalAlpha=.18+dl*.25;const halo=ctx.createRadialGradient(sp.x,sp.y,5,sp.x,sp.y,95);halo.addColorStop(0,'#fff4b1');halo.addColorStop(1,'#fff4b100');ctx.fillStyle=halo;ctx.fillRect(sp.x-100,sp.y-100,200,200);ctx.restore();
+  ctx.fillStyle=dusk>.3?'#ffc27a':'#ffe8a0';ctx.beginPath();ctx.arc(sp.x,sp.y,22,0,Math.PI*2);ctx.fill()}
+ if(night>.3){const nl=24-(ss-sr),f=((h+24-ss)%24)/nl;if(f<=1){const mx=80+f*800,my=285-Math.sin(f*Math.PI)*190;ctx.save();ctx.globalAlpha=Math.min(1,night*1.3);
+   ctx.fillStyle='#eef0dc';ctx.beginPath();ctx.arc(mx,my,15,0,Math.PI*2);ctx.fill();ctx.fillStyle='#c9ccb4';ctx.beginPath();ctx.arc(mx-4,my-3,3,0,6.3);ctx.arc(mx+5,my+4,2.4,0,6.3);ctx.fill();ctx.restore()}}
+ /* distant hills */
+ for(let layer=0;layer<2;layer++){ctx.fillStyle=`rgb(${Math.round(lerp(9,34,dl)+layer*6)},${Math.round(lerp(22,70,dl)+layer*8)},${Math.round(lerp(22,52,dl)+layer*4)})`;
+  ctx.beginPath();ctx.moveTo(0,soilY);for(let x=0;x<=W;x+=20)ctx.lineTo(x,soilY-34-layer*18-Math.sin(x*(.006+layer*.004)+layer*2)*(20-layer*5)-Math.sin(x*.021+layer)*7);ctx.lineTo(W,soilY);ctx.closePath();ctx.fill()}
+ for(const c of clouds){ctx.fillStyle=weather==='rain'?'#758b91cc':dusk>.3?'#f0c9a8aa':night>.5?'#4c5a6caa':'#d7e8e8aa';ctx.beginPath();ctx.ellipse(c.x,c.y,45*c.s,13*c.s,0,0,Math.PI*2);ctx.ellipse(c.x-22*c.s,c.y+2,22*c.s,12*c.s,0,0,Math.PI*2);ctx.ellipse(c.x+20*c.s,c.y-7,25*c.s,17*c.s,0,0,Math.PI*2);ctx.fill()}
+}
+function drawSoil(){
+ const g=ctx.createLinearGradient(0,soilY,0,CH);g.addColorStop(0,'#65482f');g.addColorStop(.25,'#493522');g.addColorStop(1,'#241d18');ctx.fillStyle=g;ctx.fillRect(0,soilY,W,CH-soilY);
+ ctx.fillStyle='#8c6540';ctx.fillRect(0,soilY+65,W,3);ctx.fillStyle='#35271f';ctx.fillRect(0,soilY+145,W,2);
+ for(let i=0;i<34;i++){const x=(i*131+37)%W,y=soilY+12+((i*67+19)%180),r=2+(i%5);ctx.fillStyle=i%2?'#b08a5b':'#74614b';ctx.beginPath();ctx.ellipse(x,y,r*1.4,r*.7,(i%7-3)*.09,0,Math.PI*2);ctx.fill()}
+ for(let i=0;i<220;i++){const x=(i*83)%W,y=soilY+((i*47)%205);ctx.fillStyle=i%3?'#a17a4d55':'#d0a76b33';ctx.fillRect(x,y,1+(i%3),1+(i%2))}
+ /* wet soil darkens downward as moisture rises */
+ const m=moisture/100,depth=25+m*180,wg=ctx.createLinearGradient(0,soilY,0,soilY+depth);wg.addColorStop(0,`rgba(18,10,6,${.1+m*.42})`);wg.addColorStop(1,'rgba(18,10,6,0)');ctx.fillStyle=wg;ctx.fillRect(0,soilY,W,depth);
+ /* worms */
+ const wa=clamp((moisture-10)/30,.25,1);ctx.lineCap='round';
+ for(const w of worms){ctx.strokeStyle=`rgba(214,150,140,${.55*wa})`;ctx.lineWidth=3;ctx.beginPath();for(let i=0;i<=9;i++){const t=i/9,x=w.x-Math.cos(w.a)*t*26+Math.sin(w.ph-t*5)*3*Math.sin(w.a+1.57),y=w.y-Math.sin(w.a)*t*13+Math.sin(w.ph-t*5)*3*Math.cos(w.a+1.57);i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke()}
+ ctx.fillStyle='#73934c';ctx.fillRect(0,soilY-3,W,5);
+ if(moisture>85){ctx.fillStyle=`rgba(120,175,215,${(moisture-85)/15*.35})`;for(let i=0;i<6;i++){ctx.beginPath();ctx.ellipse(70+i*165,soilY-1,40,2.5,0,0,6.3);ctx.fill()}}
+ ctx.fillStyle='#d1b17a';ctx.font='11px system-ui';ctx.fillText('SOIL PROFILE',15,soilY+20);ctx.fillStyle='#9e8058';ctx.fillText(`Moisture ${moisture.toFixed(0)}%  ·  Fertility ${fertility.toFixed(0)}%`,15,soilY+37);
+}
+function drawGroundLife(){
+ for(let x=4;x<W;x+=11){const ht=7+Math.sin(x*1.73)*5,sw=windS*windNow*7+Math.sin(clockT*2+x*.05)*windNow*3;
+  ctx.strokeStyle=frostA>.3&&x%2?mixc('#79a95c',[['#e8f2f4',frostA*.6]]):(x%3?'#79a95c':'#a0bf69');ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(x,soilY-2);ctx.quadraticCurveTo(x-2+sw*.4,soilY-ht*.6,x-3+sw,soilY-ht);ctx.stroke();
+  if(x%5===0){ctx.beginPath();ctx.moveTo(x,soilY-2);ctx.quadraticCurveTo(x+4+sw*.4,soilY-ht*.5,x+7+sw,soilY-ht*.8);ctx.stroke()}}
+}
+function leaf(x,y,s,a,color){
+ if(s<2)return;ctx.save();ctx.translate(x,y);ctx.rotate(a);
+ if(s>9){const g=ctx.createLinearGradient(0,-s*.65,0,s*.65);g.addColorStop(0,color);g.addColorStop(1,LD);ctx.fillStyle=g}else ctx.fillStyle=color;
+ ctx.beginPath();
+ if(LS===2){ctx.moveTo(s*1.47,0);ctx.ellipse(s*.75,0,s*.72,s*.2,0,0,6.3);for(let k=0;k<4;k++){const lx=s*(.3+.3*k),lr=s*(.3-.04*Math.abs(k-1.5));ctx.moveTo(lx+lr,-s*.17);ctx.ellipse(lx,-s*.17,lr,lr*.85,0,0,6.3);ctx.moveTo(lx+lr,s*.17);ctx.ellipse(lx,s*.17,lr,lr*.85,0,0,6.3)}ctx.fill()}
+ else if(LS===3){ctx.moveTo(0,0);ctx.bezierCurveTo(s*.3,-s*.2,s*1.1,-s*.17,s*1.7,0);ctx.bezierCurveTo(s*1.1,s*.17,s*.3,s*.2,0,0);ctx.fill()}
+ else if(LS===1){ctx.moveTo(0,0);ctx.bezierCurveTo(-s*.15,-s*.7,s*.5,-s*1.05,s*1.35,-s*.05);ctx.bezierCurveTo(s*.5,s*1.05,-s*.15,s*.7,0,0);ctx.fill()}
+ else{ctx.moveTo(0,0);ctx.bezierCurveTo(s*.25,-s*.9,s*1.25,-s*.7,s*1.5,0);ctx.bezierCurveTo(s*1.1,s*.65,s*.3,s*.55,0,0);ctx.fill()}
+ if(s>9){ctx.strokeStyle='#d9f3bd88';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(s*.7,0,s*1.36,0);ctx.stroke()}
+ if(dew>.25&&s>8){ctx.fillStyle=`rgba(225,246,255,${.55*dew})`;ctx.beginPath();ctx.arc(s*1.3,-s*.04,1.7,0,6.3);ctx.arc(s*.7,s*.12,1.2,0,6.3);ctx.fill()}
+ ctx.restore()}
+function stem(p,H,tw,v,w,tint){ctx.lineCap='round';let a=stemPt(p,0,H);
+ for(let i=1;i<=14;i++){const t=i/14,b=stemPt(p,t,H);ctx.strokeStyle=mixc(v.stem,[['#8d6c46',w*(1-t)]].concat(tint));ctx.lineWidth=Math.max(1.2,tw*(1-.5*t));ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();a=b}}
+function curve(p,Lh,a,w,color,segs){ctx.strokeStyle=color;ctx.lineCap='round';let q=fanPt(p,0,Lh,a);
+ for(let i=1;i<=segs;i++){const t=i/segs,n=fanPt(p,t,Lh,a);ctx.lineWidth=Math.max(.8,w*(1-.65*t));ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(n[0],n[1]);ctx.stroke();q=n}return q}
+function branchLeaves(g,p,col,ls){const sz=g.L*.8*p.leaf*ls;if(sz<2.5)return;
+ leaf(g.tx,g.ty,sz,ld(g.side,g.el*.6+.1+fold*.5-p.droop*.4),col);
+ leaf(lerp(g.ox,g.tx,.7),lerp(g.oy,g.ty,.7)-1,sz*.7,ld(-g.side,.6-p.droop*.6+fold*.3),col)}
+/* a tapering limb drawn as short thick-to-thin segments along a quadratic curve */
+function limb(x0,y0,cx,cy,x1,y1,w0,w1,color,segs){ctx.strokeStyle=color;ctx.lineCap='round';let a=[x0,y0];
+ for(let i=1;i<=segs;i++){const t=i/segs,b=qpt(x0,y0,cx,cy,x1,y1,t);ctx.lineWidth=Math.max(.7,lerp(w0,w1,(i-.5)/segs));ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();a=b}}
+/* Root system: a wandering main root, laterals that arc outward then bend down with gravity,
+   sub-laterals, and fine root hairs. Everything is generated from a per-plant seed in a fixed order,
+   so the shape is stable frame to frame and simply scales up as the plant grows. */
+function drawRoots(p,v){
+ if(p.germ<1)return;
+ ctx.lineCap='round';
+ const dead=p.state==='dead',R=rng((p.phase*100003)|0),fib=v.rt==='fib',NL=fib?13:9,N=10;
+ const col=dead?'#8a6a45':mixc('#dcc796',[['#b59a68',clamp(1-moisture/70,0,.5)]]);
+ const D=Math.min(fib?92:178,p.age*3.6+6)*v.root;
+ /* main root */
+ const pts=[[p.x,soilY+1]];let a=0,x=p.x,y=soilY+1;
+ for(let i=0;i<N;i++){a+=(R()-.5)*.55-a*.4;const st=D/N;x+=Math.sin(a)*st;y+=Math.cos(a)*st;pts.push([x,y])}
+ const tw=fib?1.5:2.8;
+ for(let i=0;i<N;i++){const A=pts[i],B=pts[i+1];ctx.strokeStyle=col;ctx.lineWidth=Math.max(.7,tw*(1-i/N*.85));ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke()}
+ const L1=[],L2=[],H=[];
+ for(let k=0;k<NL;k++){
+  const f=(k+.6)/(NL+.4),fi=f*N,i0=Math.min(N-1,fi|0),fr=fi-i0,sx=lerp(pts[i0][0],pts[i0+1][0],fr),sy=lerp(pts[i0][1],pts[i0+1][1],fr);
+  const side=(k%2?1:-1)*(R()<.18?-1:1),r1=R(),r2=R(),r3=R();
+  const g=clamp((p.age-1-k*(fib?1.1:1.6))/(fib?8:10),0,1);
+  const sub=[];for(let s=0;s<3;s++)sub.push([.32+s*.27+R()*.08,(R()-.5)*2,.5+R()*.5,R()]);
+  if(g<=0)continue;
+  const Lm=(fib?66:50)*v.root*(1-f*(fib?.45:.55))*(.65+.6*r1)*g;
+  const ang=(fib?.1:.2)+r2*.5,dx=side*Math.cos(ang),dy=Math.sin(ang);
+  const ex=sx+dx*Lm,ey=sy+dy*Lm+Lm*.3,cx=sx+dx*Lm*.55,cy=sy+dy*Lm*.3;
+  L1.push([sx,sy,cx,cy,ex,ey]);
+  for(const q of sub){const t=q[0],pt=qpt(sx,sy,cx,cy,ex,ey,t),sl=Lm*.42*q[2]*(1-t*.4)*clamp((g-.3)/.7,0,1);if(sl<2.5)continue;
+   const e2x=pt[0]+q[1]*sl*.8,e2y=pt[1]+sl*(.55+q[3]*.45);L2.push([pt[0],pt[1],pt[0]+q[1]*sl*.3,pt[1]+sl*.5,e2x,e2y]);
+   if(p.age>9){for(let h=0;h<3;h++){const ha=(h-1)*.9+q[1]*.3;H.push([e2x,e2y,e2x+Math.sin(ha)*sl*.3,e2y+Math.cos(ha)*sl*.3+2])}}}
+  if(p.age>9)for(let h=0;h<3;h++){const ha=(h-1)*.8;H.push([ex,ey,ex+Math.sin(ha)*Lm*.12+side*2,ey+Math.cos(ha)*Lm*.14+3])}
+ }
+ ctx.strokeStyle=col;ctx.lineWidth=fib?1.1:1.6;ctx.beginPath();for(const s of L1){ctx.moveTo(s[0],s[1]);ctx.quadraticCurveTo(s[2],s[3],s[4],s[5])}ctx.stroke();
+ ctx.lineWidth=.8;ctx.beginPath();for(const s of L2){ctx.moveTo(s[0],s[1]);ctx.quadraticCurveTo(s[2],s[3],s[4],s[5])}ctx.stroke();
+ if(H.length&&!dead){ctx.strokeStyle='rgba(235,225,190,.55)';ctx.lineWidth=.5;ctx.beginPath();for(const s of H){ctx.moveTo(s[0],s[1]);ctx.lineTo(s[2],s[3])}ctx.stroke()}
+ /* root tip glows slightly while actively growing */
+ if(!dead&&p.age<60){ctx.fillStyle='#f4ecd0';ctx.beginPath();ctx.arc(pts[N][0],pts[N][1],1.7,0,6.3);ctx.fill()}}
+function drawGerm(p,v){
+ const g=p.germ,sx=p.x,sy=soilY+7;
+ ctx.fillStyle='#caa96a';ctx.beginPath();ctx.ellipse(sx,sy,g<.3?4+g*4:5,g<.3?6:5.5,.4,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle='#e8dcb0';ctx.lineCap='round';
+ if(g>.12){const rl=Math.min(1,(g-.12)/.5)*26;ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(sx,sy+4);ctx.quadraticCurveTo(sx+4,sy+rl*.5,sx+2,sy+4+rl);ctx.stroke()}
+ if(g>.45){const f=(g-.45)/.55,len=f*15,hook=f<.85?(1-f)*7:0;
+  ctx.strokeStyle='#9dcf8a';ctx.lineWidth=2.4;ctx.beginPath();ctx.moveTo(sx,sy-4);
+  ctx.quadraticCurveTo(sx,sy-4-len*.6,sx+hook,sy-4-len);ctx.stroke();
+  if(f>=.85){const c=mixc(v.leaf,[]),cs=3+(f-.85)/.15*3;leaf(sx,sy-4-len,cs,ld(1,.3),c);leaf(sx,sy-4-len,cs,ld(-1,.3),c)}
+  if(len>6){ctx.fillStyle='#493522';ctx.beginPath();ctx.ellipse(sx,soilY-1,7,2.5,0,Math.PI,0);ctx.fill()}}}
+function drawFlower(x,y,S,b,p,v,ang){
+ if(b.mat<.04)return;ctx.save();ctx.translate(x,y);const o=b.open,R=S*b.mat,sun=p.type==='sunflower';
+ if(sun)ctx.scale(Math.max(.4,Math.cos(p.headA)),1);
+ ctx.rotate(ang);
+ if(o<.2){ctx.fillStyle=mixc(v.leaf,[[v.flower,.3+.4*b.mat]]);ctx.beginPath();ctx.ellipse(0,-R*.35,R*.28+1,R*.5+1.5,0,0,Math.PI*2);ctx.fill()}
+ else if(p.type==='clover'){ctx.fillStyle=v.flower;for(let i=0;i<9;i++){const a=i*2.4,r=R*.5*Math.sqrt(i/9)+1;ctx.beginPath();ctx.arc(Math.cos(a)*r,-R*.5+Math.sin(a)*r,R*.28*o+.5,0,6.3);ctx.fill()}}
+ else{const dz=p.type==='daisy',dl=p.type==='dandelion',n=sun?18:dz?15:dl?22:p.type==='cactus'?10:8;ctx.fillStyle=v.flower;
+  for(let i=0;i<n;i++){ctx.save();ctx.rotate(i*Math.PI*2/n);ctx.beginPath();ctx.ellipse(0,-R*(.45+.45*o),R*(sun?.2:dz?.12:dl?.1:.22)*o+.5,R*(.35+.45*o)*(sun?.9:1),0,0,Math.PI*2);ctx.fill();ctx.restore()}
+  if(sun){ctx.translate(Math.sin(p.headA)*R*.18,0);ctx.fillStyle='#4a3018';ctx.beginPath();ctx.arc(0,0,R*.55,0,6.3);ctx.fill();ctx.fillStyle='#8a5e2c';
+   for(let k=1;k<=28;k++){const r=R*.5*Math.sqrt(k/28),a=k*2.4;ctx.beginPath();ctx.arc(Math.cos(a)*r,Math.sin(a)*r,1.4,0,6.3);ctx.fill()}}
+  else{ctx.fillStyle=p.type==='tomato'||p.type==='daisy'?'#e8b92e':p.type==='dandelion'?'#f0a81e':p.type==='cactus'?'#f7e07a':'#704c25';ctx.beginPath();ctx.arc(0,0,R*.24*o+.5,0,6.3);ctx.fill()}}
+ ctx.restore()}
+const TULIP=['#e0457b','#f2c230','#e8602c','#c64bd0','#f4f0e8'];
+/* dandelion seed head: a sphere of parachutes that thins out as the wind plucks seeds away */
+function drawPuff(x,y,p,f){
+ if(f<.07){ctx.fillStyle='#9aa86a';ctx.beginPath();ctx.arc(x,y,2.2,0,6.3);ctx.fill();return}
+ const r=4+8*f,n=Math.ceil(18*f),lean=windS*windNow*r*.35;
+ ctx.fillStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.arc(x+lean*.5,y-r*.3,r*1.05,0,6.3);ctx.fill();
+ ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=.7;ctx.beginPath();
+ for(let i=0;i<n;i++){const a=i*2.399+p.phase,ex=x+Math.cos(a)*r+lean,ey=y-r*.3+Math.sin(a)*r*.95;ctx.moveTo(x,y);ctx.lineTo(ex,ey)}ctx.stroke();
+ ctx.fillStyle='#fff';for(let i=0;i<n;i++){const a=i*2.399+p.phase;ctx.beginPath();ctx.arc(x+Math.cos(a)*r+lean,y-r*.3+Math.sin(a)*r*.95,1,0,6.3);ctx.fill()}
+ ctx.fillStyle='#8c9d5e';ctx.beginPath();ctx.arc(x,y,2.4,0,6.3);ctx.fill()}
+function drawTulip(x,y,b,p){
+ if(b.mat<.05)return;const c=TULIP[Math.floor(p.phase*7)%5],o=b.open,R=11*b.mat;
+ ctx.save();ctx.translate(x,y);ctx.rotate(p.sway*.03);
+ for(const s of[-1,1]){ctx.save();ctx.rotate(s*o*.4);ctx.fillStyle=mixc(c,[['#000000',.12]]);ctx.beginPath();ctx.ellipse(s*R*.2,-R*.75,R*.38,R*.9,0,0,6.3);ctx.fill();ctx.restore()}
+ ctx.fillStyle=mixc(c,[['#ffffff',.14]]);ctx.beginPath();ctx.ellipse(0,-R*.72,R*.42,R*.95,0,0,6.3);ctx.fill();
+ ctx.fillStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.ellipse(-R*.12,-R*.9,R*.12,R*.5,.1,0,6.3);ctx.fill();
+ if(o>.5){ctx.fillStyle='#3a2a14';for(let i=-1;i<=1;i++){ctx.beginPath();ctx.arc(i*R*.17,-R*(.95+o*.15),1.4,0,6.3);ctx.fill()}}
+ ctx.restore()}
+function drawPoppy(x,y,b,p){
+ if(b.mat<.05)return;const o=b.open,R=12*b.mat;
+ ctx.save();ctx.translate(x,y);ctx.rotate((1-o)*2.3*p.dd+p.sway*.04);
+ if(o<.3){ctx.fillStyle='#7f9a55';ctx.beginPath();ctx.ellipse(0,-R*.45,R*.3,R*.55,0,0,6.3);ctx.fill();ctx.strokeStyle='#d6e6b9';ctx.lineWidth=.6;for(let i=-2;i<=2;i++){ctx.beginPath();ctx.moveTo(i*1.4,-R*.2);ctx.lineTo(i*1.8,-R*.35);ctx.stroke()}if(o>.12){ctx.fillStyle='#e8412e';ctx.beginPath();ctx.ellipse(0,-R*.82,R*.15,R*.12,0,0,6.3);ctx.fill()}}
+ else{const pr=R*.62*o;for(let i=0;i<4;i++){const a=i*1.571+.5;ctx.fillStyle=i%2?'#e8412e':'#d9331f';ctx.beginPath();ctx.arc(Math.cos(a)*pr*.8,-R*.5+Math.sin(a)*pr*.8,pr,0,6.3);ctx.fill()}
+  ctx.fillStyle='#2a1a1a';ctx.beginPath();ctx.arc(0,-R*.5,R*.17,0,6.3);ctx.fill();ctx.fillStyle='#3d2b3c';for(let i=0;i<8;i++){const a=i*.785;ctx.beginPath();ctx.arc(Math.cos(a)*R*.3,-R*.5+Math.sin(a)*R*.3,1,0,6.3);ctx.fill()}}
+ ctx.restore()}
+function drawPlant(p){
+ const v=V[p.type],dead=p.state==='dead',season=seasonIndex();
+ ctx.save();ctx.globalAlpha=dead?clamp(1-p.deadT/70,.12,1):1;
+ drawRoots(p,v);
+ if(p.germ<1){drawGerm(p,v);ctx.restore();return}
+ const H=ph(p),yel=clamp((65-p.health)/65,0,1),aut=v.decid?(season===2?.5:season===3?.85:0):(season===3&&p.type==='grass'?.5:0),dy=p.state==='dying'?.55:0,dd=dead?.9:0;
+ const col=mixc(v.leaf,[['#c9b24a',yel*.8],['#d98a35',aut*.8],['#a9863d',dy],['#6e5638',dd]]);
+ LD=mixc('#244d36',[['#8a7430',yel*.7],['#8a4f1c',aut*.6],['#6b5226',dy],['#4a3a28',dd]]);
+ LS=p.type==='oak'||p.type==='dandelion'||p.type==='poppy'?2:p.type==='sunflower'?1:p.type==='bamboo'?3:0;
+ const tint=[['#c9b24a',yel*.6],['#a9863d',dy*.6],['#6e5638',dd]];
+ const woody=({oak:.85,lavender:.4,tomato:.25,sunflower:.2})[p.type]*Math.min(1,p.age/40)||.08;
+ const top=stemPt(p,1,H);
+ if(p.age<3){stem(p,H,2.2,v,0,tint);const cs=5+p.age*1.8;leaf(top[0],top[1],cs,ld(1,.2-p.droop*.3),col);leaf(top[0],top[1],cs,ld(-1,.2-p.droop*.3),col)}
+ else switch(p.type){
+ case 'cactus':{
+  const w=(9+p.stem*15*p.g.h)*(1-p.droop*.15),tc=mixc(v.stem,tint),ti=mixc('#6fc7a5',tint);
+  ctx.lineCap='round';ctx.strokeStyle=tc;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(p.x,soilY);ctx.lineTo(top[0],top[1]);ctx.stroke();
+  ctx.strokeStyle=ti;ctx.globalAlpha*=.45;ctx.lineWidth=w*.22;ctx.beginPath();ctx.moveTo(p.x-w*.22,soilY);ctx.lineTo(top[0]-w*.22,top[1]);ctx.stroke();ctx.globalAlpha=dead?clamp(1-p.deadT/70,.12,1):1;
+  for(const[t0,sd,minAge]of[[.4,1,14],[.55,-1,22]]){if(p.age<minAge)continue;const f=Math.min(1,(p.age-minAge)/12),s=stemPt(p,t0,H),aw=w*.62,al=26*f*(H/70+.5),au=22*f*(H/70+.5);
+   ctx.strokeStyle=tc;ctx.lineWidth=aw;ctx.beginPath();ctx.moveTo(s[0],s[1]);ctx.quadraticCurveTo(s[0]+sd*al,s[1],s[0]+sd*al,s[1]-au);ctx.stroke()}
+  ctx.strokeStyle='#f2efd8aa';ctx.lineWidth=1;for(let t=.1;t<.97;t+=.09){const s=stemPt(p,t,H);for(const sd of[-1,1]){ctx.beginPath();ctx.moveTo(s[0]+sd*w*.5,s[1]);ctx.lineTo(s[0]+sd*(w*.5+3.5),s[1]-2);ctx.stroke()}}
+  break}
+ case 'fern':{
+  const n=3+Math.floor(p.stem*7);
+  for(let i=0;i<n;i++){const f=n>1?i/(n-1):.5,a=(f-.5)*2.1,r=(i*37%10)/10,u=clamp((p.age-i*.8)/6,0,1),Lf=H*(.6+.4*r)*u;if(Lf<4)continue;
+   const x0=p.x+(i-n/2)*1.4,cx=x0+Math.sin(a)*Lf*.25,cy=soilY-Lf*.95,tx=x0+Math.sin(a)*Lf*.9+p.sway*v.flex*Lf*.1,ty=soilY-Lf*(.45+.25*Math.cos(a))*(1-p.droop*.5)+p.droop*Lf*.3;
+   ctx.strokeStyle=mixc('#3b7a4f',tint);ctx.lineWidth=1.6;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x0,soilY);ctx.quadraticCurveTo(cx,cy,tx,ty);ctx.stroke();
+   for(let j=0;j<12;j++){const t=.18+j*.075,mt=1-t,px=mt*mt*x0+2*mt*t*cx+t*t*tx,py=mt*mt*soilY+2*mt*t*cy+t*t*ty,dx=2*mt*(cx-x0)+2*t*(tx-cx),dyy=2*mt*(cy-soilY)+2*t*(ty-cy),an=Math.atan2(dyy,dx),sz=(1-t*.72)*Lf*.15*p.leaf;
+    leaf(px,py,sz,an-1.15,col);leaf(px,py,sz,an+1.15,col)}}
+  break}
+ case 'grass':{
+  const n=6+Math.floor(p.stem*14);
+  for(let i=0;i<n;i++){const r=Math.abs(Math.sin(i*12.9898+p.phase*78.233)),r2=Math.abs(Math.sin(i*4.1414+p.phase*3.3)),h=H*(.45+.55*r)*(i===0?1:1),a=(r2-.5)*1.1;
+   const q=curve(p,i===0?H:h,i===0?0:a,2.3,i%2?col:mixc(v.leaf,[['#b7d96b',.35],['#c9b24a',yel*.8],['#d98a35',aut*.8],['#a9863d',dy],['#6e5638',dd]]),8);
+   if(i===0&&p.buds.length&&p.buds[0].mat>.1){const m=p.buds[0];ctx.fillStyle=mixc(v.flower,[['#8a8a50',1-m.mat]]);for(let k=0;k<7;k++){ctx.beginPath();ctx.ellipse(q[0]+(k%2?1.5:-1.5),q[1]-k*3.2,1.7,3,(k%2?.4:-.4)+p.sway*.05,0,6.3);ctx.fill()}}}
+  break}
+ case 'clover':{
+  const n=2+Math.floor(p.stem*7);
+  for(let i=0;i<n;i++){const r=Math.abs(Math.sin(i*9.13+p.phase*5.1)),r2=Math.abs(Math.sin(i*3.7+p.phase*1.9)),hi=i===0?H:H*(.5+.5*r),a=i===0?0:(r2-.5)*1.6;
+   const q=curve(p,hi,a,1.3,mixc(v.stem,tint),6);if(i===0&&p.buds.length&&p.buds[0].open>.2)continue;
+   const sz=(5.5+Math.min(1,p.age/20)*3)*p.leaf;if(sz<2)continue;
+   for(let k=0;k<3;k++){const an=-1.57+(k-1)*1.9-p.droop*.4*(k-1)*(k-1),lx=q[0]+Math.cos(an)*sz*.7,ly=q[1]+Math.sin(an)*sz*.7;ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(lx,ly,sz*.9,sz*.7,an+1.57,0,6.3);ctx.fill();ctx.strokeStyle='#e4f3d388';ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(lx-sz*.4,ly);ctx.lineTo(lx,ly-sz*.2);ctx.lineTo(lx+sz*.4,ly);ctx.stroke()}}
+  break}
+ case 'dandelion':{
+  stem(p,H,2.2,v,0,tint);
+  const n=7+Math.floor(p.stem*7);
+  for(let i=0;i<n;i++){const r=Math.abs(Math.sin(i*7.31+p.phase*3.1)),f=n>1?i/(n-1):.5,an=-2.95+f*2.7+(r-.5)*.2,sz=(8+p.stem*13)*(.65+.5*r)*p.leaf;
+   leaf(p.x+(f-.5)*6,soilY-2,sz,an+p.droop*(f<.5?-.5:.5)*.6+Math.sin(clockT*1.4+i)*.03*windNow,col)}
+  break}
+ case 'tulip':{
+  stem(p,H,2.8,v,0,tint);
+  [[-2.15,.95],[-.95,.9],[-1.57,1.1]].forEach((q,i)=>{const sz=(11+p.stem*20)*q[1]*p.leaf;leaf(p.x+(i-1)*2,soilY-2,sz,q[0]+(i-1)*p.droop*.5+Math.sin(clockT*1.3+i)*.04*windNow,col)});
+  break}
+ case 'poppy':{
+  stem(p,H,1.7,v,0,tint);
+  for(let i=0;i<4;i++){const q=stemPt(p,.1+i*.14,H),s=i%2?1:-1,sz=(9-i*1.3)*(.4+.6*clamp((p.age-i*1.5)/8,0,1))*p.leaf;if(sz<2)continue;leaf(q[0],q[1],sz,ld(s,.5+i*.1-p.droop*.5),col)}
+  ctx.strokeStyle='#d9eec3aa';ctx.lineWidth=.6;ctx.beginPath();for(let t=.08;t<.95;t+=.06){const q=stemPt(p,t,H),d=((t*97)%1)>.5?2.5:-2.5;ctx.moveTo(q[0],q[1]);ctx.lineTo(q[0]+d,q[1]-1.5)}ctx.stroke();
+  break}
+ case 'daisy':{
+  stem(p,H,1.8,v,0,tint);
+  for(let i=0;i<6;i++){const s=i%2?1:-1,sz=(5+p.stem*8)*(.7+.3*Math.sin(i*2.3))*p.leaf;leaf(p.x+s*(1+i),soilY-2-i*1.2,sz,ld(s,.35+i*.12-p.droop*.4),col)}
+  break}
+ case 'bamboo':{
+  const n=1+Math.floor(p.stem*3.6),cc=mixc(v.stem,[['#c9b24a',yel*.8],['#a9863d',dy],['#6e5638',dd]]);
+  for(let c=0;c<n;c++){
+   const r=Math.abs(Math.sin(c*8.17+p.phase*2.7)),r2=Math.abs(Math.sin(c*3.9+p.phase*1.3)),Lh=H*(c===0?1:.5+.45*r)*clamp((p.age-c*3)/10,0,1),a=c===0?0:(r2-.5)*.5;
+   if(Lh<6)continue;
+   const w=(3.4+p.stem*2.6)*(c?.85:1),segs=Math.max(3,Math.floor(Lh/13));let prev=fanPt(p,0,Lh,a);
+   for(let k=1;k<=segs;k++){const t=k/segs,q=fanPt(p,t,Lh,a),ww=w*(1-.35*t);
+    ctx.strokeStyle=cc;ctx.lineCap='butt';ctx.lineWidth=ww;ctx.beginPath();ctx.moveTo(prev[0],prev[1]);ctx.lineTo(q[0],q[1]);ctx.stroke();
+    ctx.strokeStyle='#4e6e2c';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(q[0]-ww*.55,q[1]);ctx.lineTo(q[0]+ww*.55,q[1]);ctx.stroke();
+    if(t>.4&&t<.98){const sd=k%2?1:-1,bl=(7+Lh*.06)*p.leaf;if(bl>3){const bx=q[0]+sd*bl*.8,by=q[1]-bl*.35;ctx.strokeStyle=cc;ctx.lineWidth=1;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(bx,by);ctx.stroke();
+      for(let j=0;j<3;j++)leaf(bx,by,bl*(.55+.12*j),ld(sd,-.2+j*.55-p.droop*.5+fold*.3),col)}}
+    prev=q}
+   const tp=fanPt(p,1,Lh,a);for(let j=-1;j<=1;j++)leaf(tp[0],tp[1],9*p.leaf,-1.57+j*.6,col)}
+  break}
+ case 'lavender':{
+  const n=3+Math.floor(p.stem*6),b0=p.buds[0];
+  for(let i=0;i<5;i++){const a=(i-2)*.5;curve(p,H*.3*p.leaf+4,a,1.3,col,4)}
+  for(let i=0;i<n;i++){const r=Math.abs(Math.sin(i*5.17+p.phase*2.3)),a=n>1?(i/(n-1)-.5)*.9:0,Lh=i===0?H:H*(.72+.28*r),aa=i===0?0:a;
+   curve(p,Lh,aa,1.6,mixc(v.stem,[['#8d6c46',woody*.6]].concat(tint)),9);
+   if(b0&&b0.mat>.05){for(let k=0;k<9;k++){const t=.7+k*.034,q=fanPt(p,t,Lh,aa),sz=(1-k*.07)*b0.mat;ctx.fillStyle=b0.open<.3?mixc(v.leaf,[[v.flower,.5]]):mixc(v.flower,[['#8a7aa8',dd]]);ctx.beginPath();ctx.ellipse(q[0]-2,q[1],2.4*sz+.5,(3.2+b0.open*1.6)*sz+.5,-.4,0,6.3);ctx.ellipse(q[0]+2,q[1]-1.5,2.4*sz+.5,(3.2+b0.open*1.6)*sz+.5,.4,0,6.3);ctx.fill()}}}
+  break}
+ default:{
+  const sun=p.type==='sunflower',oak=p.type==='oak',tw=(oak?3+p.stem*6:sun?3+p.stem*6:2+p.stem*2.6)*(.8+.2*p.g.h);
+  stem(p,H,tw,v,woody,tint);
+  const ls=sun?1.5:p.type==='tomato'?1.1:1;
+  /* seed leaves at the base fade as the plant matures */
+  if(p.age<28){const cs=6*clamp(1-(p.age-10)/18,0,1);if(cs>1.5){const q=stemPt(p,.04,H);leaf(q[0],q[1],cs,ld(1,.15-p.droop*.4),col);leaf(q[0],q[1],cs,ld(-1,.15-p.droop*.4),col)}}
+  /* leaves sit at fixed heights on the stem and unfurl as they fall behind the growing tip */
+  {const sp=Math.max(5,8.5*v.h*p.g.h),sizeMax=(6+Math.min(H,170)*.085)*(oak?1.15:sun?1.35:p.type==='tomato'?1.2:1);
+   for(let i=0;i*sp+5<H*.94;i++){
+    const ha=5+i*sp,t=ha/H,d=H-ha,u=clamp((d-8)/(26+H*.14),0,1);
+    if(t<Math.min(.18,(p.age-22)*.004))continue;
+    const sd=i%2?1:-1,f=.5+.5*Math.sin(Math.PI*(.15+.7*(1-t))),sz=sizeMax*f*(.7+.3*Math.cos(i*2.4))*p.leaf*(.25+.75*u);
+    if(sz<2.2)continue;
+    const q=stemPt(p,t,H),el=lerp(1.4,Math.max(-.2,.5+Math.sin(i*1.9)*.25-p.droop*1.1+fold*.5),u),pl=sz*.28*u;
+    const bx=q[0]+sd*Math.cos(el)*pl,by=q[1]-Math.sin(el)*pl*.8;
+    if(pl>1.5){ctx.strokeStyle=mixc(v.stem,tint);ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(q[0],q[1]);ctx.lineTo(bx,by);ctx.stroke()}
+    leaf(bx,by,sz,ld(sd,el),col)}}
+  p.branches.forEach((b,i)=>{if(b.len<=0)return;const g=branchGeom(p,i,H);
+   const bc=mixc(v.stem,[['#8d6c46',woody*.8]].concat(tint)),bw=(1.1+tw*.34)*(.45+.55*b.len),heavy=oak?.5:p.type==='tomato'?.35:.15;
+   /* limb arcs up from the stem, then sags with its own weight */
+   const cx=g.ox+g.side*g.L*.55,cy=Math.min(g.oy,g.ty)-g.L*.22*b.arch;
+   const ex=g.tx,ey=g.ty;
+   limb(g.ox,g.oy,cx,cy,ex,ey,bw,bw*.4,bc,3);
+   ctx.fillStyle=bc;ctx.beginPath();ctx.ellipse(g.ox,g.oy,bw*.75,bw*1.05,0,0,6.3);ctx.fill();
+   for(const t of b.tw){const u=clamp((b.len-t.t*.55)/.45,0,1);if(u<=.02)continue;
+    const q=qpt(g.ox,g.oy,cx,cy,ex,ey,t.t),an=g.el+t.rel-p.droop*.5,tl=g.L*t.L*u;
+    const tx2=q[0]+g.side*Math.cos(an)*tl,ty2=q[1]-Math.sin(an)*tl+tl*heavy*.8;
+    limb(q[0],q[1],lerp(q[0],tx2,.5),lerp(q[1],ty2,.5)-tl*.18,tx2,ty2,bw*.55,bw*.25,bc,1);
+    const ts=g.L*.38*p.leaf*u*ls;if(ts>2.4){leaf(tx2,ty2,ts,ld(g.side,an*.7+fold*.4),col);leaf(lerp(q[0],tx2,.55),lerp(q[1],ty2,.55),ts*.7,ld(-g.side,.7-p.droop*.5),col)}}
+   branchLeaves(g,p,col,ls)});
+  if(oak){const n=5;for(let i=0;i<n;i++){const s=(i%2?1:-1),e=.5+i*.22-p.droop*.8+fold*.4,sz=(10+p.stem*14)*p.leaf;leaf(top[0],top[1]+i*2,sz,ld(s,e),col)}}
+  else if(p.leaf>.1){const sz=(3+p.stem*6)*p.leaf*ls;leaf(top[0],top[1]+1,sz,ld(1,1.3),col);leaf(top[0],top[1]+1,sz*.9,ld(-1,1.3),col);leaf(top[0],top[1]+2,sz*.7,-1.57,col)}
+ }}
+ /* flowers, catkins, tomatoes */
+ if(p.age>=3)for(let bi=0;bi<p.buds.length;bi++){const b=p.buds[bi];if(p.type==='fern'||p.type==='grass'||p.type==='lavender'||p.type==='bamboo')continue;
+  const pos=flowerPos(p,b);
+  if(p.type==='oak'){if(b.mat>.2){ctx.strokeStyle=v.flower;ctx.lineWidth=2;ctx.lineCap='round';for(let k=-1;k<=1;k++){ctx.beginPath();ctx.moveTo(pos[0]+k*4,pos[1]);ctx.lineTo(pos[0]+k*5+p.sway*.8,pos[1]+9*b.mat);ctx.stroke()}}continue}
+  if(p.type==='tomato'&&p.pollinated&&p.fruit>.12){const r=2+p.fruit*7,fc=mixc('#6aa845',[['#e0452e',clamp((p.fruit-.5)*2,0,1)]]);ctx.fillStyle=fc;ctx.beginPath();ctx.arc(pos[0],pos[1]+r,r,0,6.3);ctx.fill();ctx.fillStyle='#4e7f38';ctx.beginPath();ctx.arc(pos[0],pos[1]+1,2.4,0,6.3);ctx.fill();continue}
+  if(p.type==='dandelion'&&p.age>(FIRST_FLOWER.dandelion||18)+12){drawPuff(pos[0],pos[1],p,1-p.seedsMade/v.seeds);continue}
+  if(p.type==='tulip'){drawTulip(pos[0],pos[1],b,p);continue}
+  if(p.type==='poppy'){drawPoppy(pos[0],pos[1],b,p);continue}
+  const S={wildflower:9,sunflower:26,cactus:9,clover:6,tomato:6,daisy:10,dandelion:9}[p.type];if(!S)continue;
+  const sun=p.type==='sunflower',nod=sun?clamp(p.seedsMade/v.seeds,0,1)*1.1:0;
+  drawFlower(pos[0]+p.dd*nod*S*.5,pos[1]+(sun?nod*S*.6-S*.15:-2),S,b,p,v,p.sway*.03+(sun?p.dd*nod*.5:0))}
+ if(p===sel&&!dead){ctx.globalAlpha=1;ctx.fillStyle='#f5ce70';ctx.beginPath();ctx.moveTo(top[0],top[1]-(p.type==='sunflower'?42:24));ctx.lineTo(top[0]-5,top[1]-(p.type==='sunflower'?52:34));ctx.lineTo(top[0]+5,top[1]-(p.type==='sunflower'?52:34));ctx.closePath();ctx.fill()}
+ ctx.restore()}
+function drawBug(g){
+ /* at high speed insects streak: draw a fading motion trail behind them */
+ if(g_bs>2.2&&!g.leaving&&g.t){const tl=Math.min(26,(g_bs-2)*6);ctx.strokeStyle=g.kind==='bee'?'rgba(242,194,48,.35)':'rgba(240,160,200,.3)';ctx.lineWidth=2;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(g.x,g.y);ctx.lineTo(g.x-g.face*tl,g.y+2);ctx.stroke()}
+ ctx.save();ctx.translate(g.x,g.y);ctx.scale(g.face,1);
+ if(g.kind==='bee'){const fl=Math.sin(clockT*70)*.5;ctx.fillStyle='#ffffff88';ctx.beginPath();ctx.ellipse(-1,-4,4,2,-.6-fl,0,6.3);ctx.ellipse(2,-4,4,2,-1-fl,0,6.3);ctx.fill();
+  ctx.fillStyle='#f2c230';ctx.beginPath();ctx.ellipse(0,0,5,3.2,0,0,6.3);ctx.fill();ctx.fillStyle='#2a2218';ctx.fillRect(-1,-3,1.6,6);ctx.fillRect(2,-2.6,1.4,5.2);ctx.beginPath();ctx.arc(5,0,2,0,6.3);ctx.fill()}
+ else{const fl=Math.abs(Math.sin(clockT*11+g.ph)),c=['#f08a4b','#e66fb0','#7ab6f0','#f0d34b'][g.hue%4];ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(-2,-3*fl,5,7*fl+1,-.4,0,6.3);ctx.ellipse(2,3*fl,4,5*fl+1,.4,0,6.3);ctx.fill();ctx.fillStyle='#2a2218';ctx.fillRect(-1,-1,5,1.6)}
+ ctx.restore()}
+function draw(){
+ drawSky();drawSoil();
+ for(const p of plants)drawPlant(p);
+ drawGroundLife();
+ for(const s of seeds){ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.landed?-.2:s.rot);const fl=V[s.type].float;
+  if(!s.landed&&fl>.4){ctx.strokeStyle='#ffffffaa';ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-3,-7);ctx.moveTo(0,0);ctx.lineTo(3,-7);ctx.moveTo(0,0);ctx.lineTo(0,-8);ctx.stroke()}
+  ctx.fillStyle='#d9b76b';ctx.beginPath();ctx.ellipse(0,0,3,5,-.25,0,6.3);ctx.fill();ctx.restore()}
+ for(const l of fall){ctx.save();ctx.translate(l.x,l.y);ctx.rotate(l.rot);ctx.globalAlpha=l.landed?clamp(1-l.t/40,0,1):1;ctx.fillStyle=l.c==='oak'?'#b8742f':'#c99a3a';ctx.beginPath();ctx.ellipse(0,0,6,3.2,0,0,6.3);ctx.fill();ctx.restore()}
+ if(wisps.length){ctx.lineCap='round';ctx.lineWidth=1;for(const q of wisps){const al=clamp(windNow*1.1,0,.55)*q.a*(dlNow>.1?.8:.4),d=windS>0?1:-1;ctx.strokeStyle=`rgba(235,248,240,${al})`;ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.bezierCurveTo(q.x-d*q.l*.3,q.y-3,q.x-d*q.l*.6,q.y+3,q.x-d*q.l,q.y-1);ctx.stroke()}}
+ for(const g of bugs)drawBug(g);
+ if(flies.length){ctx.save();ctx.globalCompositeOperation='lighter';for(const f of flies){const a=f.k*(.35+.65*Math.max(0,Math.sin(clockT*2.4+f.ph)));if(a<.03)continue;const gr=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,11);gr.addColorStop(0,`rgba(230,255,120,${a})`);gr.addColorStop(1,'rgba(230,255,120,0)');ctx.fillStyle=gr;ctx.fillRect(f.x-11,f.y-11,22,22)}ctx.restore()}
+ ctx.strokeStyle='#76b9e9aa';ctx.lineWidth=1.5;ctx.beginPath();for(const q of particles){ctx.moveTo(q.x,q.y);ctx.lineTo(q.x-q.vx*.02,q.y-8)}ctx.stroke();
+ ctx.strokeStyle='#bfe3f6aa';ctx.lineWidth=1;for(const s of splashes){ctx.globalAlpha=1-s.t;ctx.beginPath();ctx.ellipse(s.x,soilY-1,2+s.t*7,1+s.t*2,0,Math.PI,0);ctx.stroke()}ctx.globalAlpha=1;
+ const h=time/3600,sr=12-seasonDayLength()/2,ss=12+seasonDayLength()/2,dusk=Math.max(0,1-Math.abs(h-sr)/1.6,1-Math.abs(h-ss)/1.6);
+ if(dlNow<1){ctx.fillStyle=`rgba(6,10,36,${(1-dlNow)*.42/(1+Math.max(0,speed-8)/12)})`;ctx.fillRect(0,0,W,CH)}
+ if(dusk>0){ctx.fillStyle=`rgba(255,150,70,${dusk*.1})`;ctx.fillRect(0,0,W,CH)}
+ if(speed>=4&&!paused){const vg=ctx.createRadialGradient(W/2,CH/2,CH*.45,W/2,CH/2,CH*.95);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,0,.38)');ctx.fillStyle=vg;ctx.fillRect(0,0,W,CH);
+  ctx.fillStyle=Math.floor(clockT*1.5)%2?'#ff5a5a':'#ff5a5a55';ctx.beginPath();ctx.arc(24,24,5,0,6.3);ctx.fill();ctx.fillStyle='#ffffffcc';ctx.font='11px system-ui';ctx.fillText(`TIME-LAPSE  ×${speed<10?String(+speed.toFixed(1)):Math.round(speed)}`,36,28)}
+ ctx.fillStyle='#ffffff99';ctx.font='12px system-ui';ctx.fillText(`DAY ${day}  ·  ${String(Math.floor(time/3600)).padStart(2,'0')}:${String(Math.floor(time%3600/60)).padStart(2,'0')}`,W-145,24)}
+
+/* ---------- UI ---------- */
+function ui(){
+ const hh=time/3600;$('dayLabel').textContent=`DAY ${day} · ${String(Math.floor(hh)).padStart(2,'0')}:${String(Math.floor(time%3600/60)).padStart(2,'0')}`;
+ $('temp').textContent=`${temp.toFixed(1)}°C`;$('humidity').textContent=`${humidity.toFixed(0)}%`;$('moisture').textContent=`${moisture.toFixed(0)}%`;$('sunlight').textContent=`${light.toFixed(0)}%`;
+ $('windStat').textContent=`${windS>0?'→':'←'} ${Math.round(windNow*22)} km/h`;$('fertStat').textContent=`${fertility.toFixed(0)}%`;
+ const names={clear:['☀️','Clear skies','Warm sunlight · light breeze'],cloudy:['☁️','Cloudy','Filtered sunlight · calm air'],rain:['🌧️','Rainfall','Water replenishing the soil'],heat:['🌤️','Heatwave','Strong sun · dry air']};
+ const n=names[weather];$('weatherIcon').textContent=hh<5.5||hh>20?(weather==='clear'?'🌙':n[0]):n[0];$('weatherName').textContent=n[1];$('weatherDesc').textContent=n[2];
+ const alive=alivePlants();$('plantCount').textContent=alive.length;$('seedCount').textContent=seeds.length;$('bugCount').textContent=bugs.length;
+ const p=(sel&&plants.includes(sel))?sel:alive[alive.length-1];
+ if(p){$('stageName').textContent=stageOf(p);
+  const hp=p.health,wt=p.water*100,en=p.energy*100;
+  $('barHealth').style.width=hp+'%';$('barWater').style.width=wt+'%';$('barEnergy').style.width=en+'%';
+  $('vHealth').textContent=hp.toFixed(0)+'%';$('vWater').textContent=wt.toFixed(0)+'%';$('vEnergy').textContent=en.toFixed(0)+'%';
+  const bits=[`${V[p.type].name}${p===sel?' (selected)':''} · ${p.age.toFixed(1)} growth hours.`];
+  if(p.shade>.15)bits.push('Shaded by taller neighbours.');
+  if(p.water<.25&&p.germ>=1)bits.push('Wilting — the soil is too dry.');
+  if(p.buds.length)bits.push(p.pollinated||V[p.type].wp?'Pollinated.':'Waiting for pollinators.');
+  bits.push('Growth follows sun angle, season, rain, soil moisture and fertility; leaves track the sun and fold at night.');
+  $('bioText').textContent=bits.join(' ')}
+ else{$('stageName').textContent='—';['Health','Water','Energy'].forEach(k=>{$('bar'+k).style.width='0';$('v'+k).textContent='—'});$('bioText').textContent='No living plants. Plant a seed to begin the ecosystem.'}
+ $('seasonLabel').textContent=seasonName().toUpperCase()+' · '+(['RENEWAL & SHOOTS','LONG DAYS · PEAK GROWTH','SEEDING & COOLING','DORMANCY & REST'][seasonIndex()])}
+function frame(now){
+ const real=Math.min(.1,(now-last)/1000);last=now;
+ const run=!paused&&speed>0;
+ if(run){const simS=real*3600*speed,n=Math.min(12,Math.max(1,Math.ceil(simS/3600)));for(let i=0;i<n;i++)update(simS/n,real/n)}
+ animate(run?real:0);draw();ui();requestAnimationFrame(frame)}
+canvas.addEventListener('click',e=>{
+ const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*CH/r.height;
+ let hit=null;for(const p of plants){if(p.state==='dead'||p.germ<1)continue;const H=ph(p);if(Math.abs(x-p.x)<14+(p.type==='sunflower'?10:0)&&y>soilY-H-30&&y<soilY+4)hit=p}
+ if(hit){sel=hit;return}
+ if(y>=soilY-25){selected=$('seedType').value;plant(x,selected)}else sel=null});
+$('plantBtn').onclick=()=>{selected=$('seedType').value;let best=null,bd=-1;for(let i=0;i<14;i++){const x=rand(60,W-60),d=Math.min(999,...plants.filter(p=>p.state!=='dead').map(p=>Math.abs(p.x-x)));if(d>bd){bd=d;best=x}}plant(best,selected)};
+$('seedType').onchange=e=>selected=e.target.value;
+$('speed').oninput=e=>{speed=+e.target.value;$('speedOut').textContent=speed.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')+'×';if(speed===0){paused=true;$('pauseBtn').textContent='▶ Resume'}else if(paused){paused=false;$('pauseBtn').textContent='Ⅱ Pause'}};
+$('tlBtn').onclick=()=>{const on=speed<20,v=on?24:6;$('speed').value=v;$('speed').oninput({target:{value:v}});$('tlBtn').classList.toggle('active',on)};
+$('gustBtn').onclick=()=>{gustBoost=1;windDir=Math.random()<.5?-1:1;log('A strong gust sweeps across the meadow.')};
+$('pauseBtn').onclick=()=>{paused=!paused;$('pauseBtn').textContent=paused?'▶ Resume':'Ⅱ Pause'};
+$('stepBtn').onclick=()=>{paused=true;$('pauseBtn').textContent='▶ Resume';update(3600,0);animate(0);draw();ui()};
+$('resetBtn').onclick=()=>{newWorld();animate(0);draw();ui()};
+$('clearBtn').onclick=()=>{plants=[];sel=null;log('All plants cleared.')};
+newWorld();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
