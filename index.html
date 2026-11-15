@@ -542,6 +542,17 @@
                 </option>
                 <option value="coral">Coral fungus · branching tufts</option>
               </optgroup>
+              <optgroup label="Special">
+                <option value="chimera">
+                  Chimera · random evolving genome
+                </option>
+              </optgroup>
+              <optgroup label="Animals">
+                <option value="mouse">Mouse · eats seeds &amp; fruit</option>
+                <option value="rabbit">Rabbit · grazes plants</option>
+                <option value="deer">Deer · browses, eats fruit</option>
+                <option value="fox">Fox · hunts rabbits &amp; mice</option>
+              </optgroup>
             </select>
           </div>
           <div class="actions">
@@ -614,6 +625,13 @@
             </div>
             <div class="stat">
               <small>Fallen fruit</small><strong id="dropCount">0</strong>
+            </div>
+            <div class="stat">
+              <small>Mice / rabbits / deer</small
+              ><strong id="preyCount" style="font-size: 15px">0</strong>
+            </div>
+            <div class="stat">
+              <small>Foxes</small><strong id="predCount">0</strong>
             </div>
             <div class="stat">
               <small>Harvested</small><strong id="harvCount">0</strong>
@@ -1472,9 +1490,12 @@
           camX = clamp(WW / 2 - VW / 2 + rand(-400, 400), 0, WW - VW);
           camY = 0;
           clampCam();
+          animals = [];
+          corpses = [];
+          initAnimals();
           log("A fresh ecosystem begins.");
         }
-        function plant(x, type, fromSeed, shoot, parentX) {
+        function plant(x, type, fromSeed, shoot, parentX, gn) {
           if (x < 15 || x > WW - 15) return false;
           if (countAlive() >= MAXP) {
             if (!fromSeed) log("The ground is full — no room for more plants.");
@@ -1489,8 +1510,11 @@
             )
           )
             return false;
-          const v = V[type];
+          if (type === "chimera" && !gn) gn = randomGenome();
+          const v = gn ? deriveV(gn) : V[type];
           const p = {
+            gn: gn || null,
+            v: gn ? v : undefined,
             x,
             gy: ground(x),
             type,
@@ -1499,7 +1523,7 @@
             life: v.life * rand(0.8, 1.25),
             health: 100,
             water: 0.6,
-            energy: 0.4,
+            energy: gn ? 0.35 + gn.sw * 0.4 : 0.4,
             stem: 0,
             germ: shoot ? 1 : 0,
             state: "alive",
@@ -1527,13 +1551,22 @@
           };
           plants.push(p);
           if (!fromSeed) sel = p;
-          log(
-            shoot
-              ? `A new ${v.name.toLowerCase()} sprouted from a runner.`
-              : fromSeed
-                ? `A ${v.name.toLowerCase()} seed took root.`
-                : `${v.name} planted.`,
-          );
+          if (gn && gn.ch && gn.ch.length && day - lastMutLog >= 1) {
+            const k = gn.ch[0];
+            if (MUTNOTE[k]) {
+              lastMutLog = day;
+              log(
+                `Mutation! A chimera ${MUTNOTE[k](gn)} (generation ${gn.gen}).`,
+              );
+            }
+          } else
+            log(
+              shoot
+                ? `A new ${v.name.toLowerCase()} sprouted from a runner.`
+                : fromSeed
+                  ? `A ${v.name.toLowerCase()} seed took root.`
+                  : `${v.name} planted.`,
+            );
           return true;
         }
         function plantFungus(x, type, spore) {
@@ -1627,12 +1660,12 @@
           return "Mature";
         }
         function ph(p) {
-          return p.germ < 1 ? 0 : 8 + p.stem * 150 * V[p.type].h * p.g.h;
+          return p.germ < 1 ? 0 : 8 + p.stem * 150 * VP(p).h * p.g.h;
         }
 
         /* ---------- plant geometry (local coords: ground baseline is soilY; drawPlant shifts by p.gy-soilY) ---------- */
         function stemPt(p, t, H) {
-          const v = V[p.type],
+          const v = VP(p),
             t2 = t * t;
           const wob =
             Math.sin(t * 3.2 + p.phase) *
@@ -1664,8 +1697,15 @@
         }
         function branchGeom(p, i, H) {
           const b = p.branches[i],
-            v = V[p.type],
-            bt = Math.min(0.86, 0.2 + i * 0.07),
+            v = VP(p),
+            bt = Math.min(
+              0.86,
+              v.balg === 1
+                ? 0.2 + (i >> 1) * 0.1
+                : v.balg === 2
+                  ? 0.16 + i * 0.045
+                  : 0.2 + i * 0.07,
+            ),
             o = stemPt(p, bt, H);
           const L = b.len * (12 + H * 0.22) * (v.lmul || 1);
           const el =
@@ -1697,7 +1737,7 @@
         }
         function flowerLocal(p, b) {
           const H = ph(p),
-            v = V[p.type];
+            v = VP(p);
           if (v.vine) {
             const q = vinePt(p, b.vt || 0.4);
             return [q[0], q[1] - 4];
@@ -1713,7 +1753,7 @@
           return [q[0], q[1] + (p.gy - soilY)];
         }
         function fruitLocalPos(p, f, H) {
-          const v = V[p.type],
+          const v = VP(p),
             F = v.fruit,
             r = F.size * Math.max(0.15, f.g);
           if (F.site === "branch") {
@@ -1737,6 +1777,360 @@
         }
         const ld = (s, e) => (s > 0 ? -e : Math.PI + e);
 
+        /* ---------- Chimera: a plant whose genome is inherited with random mutations ---------- */
+        const VP = (o) =>
+          o.v ||
+          (o.gn
+            ? (o.v = deriveV(o.gn))
+            : V[o.type] || ((o.gn = randomGenome()), (o.v = deriveV(o.gn))));
+        const GL = [
+          ["lh", "f"],
+          ["lsat", "f"],
+          ["lh2", "f"],
+          ["var", "f"],
+          ["sh", "f"],
+          ["lsz", "f"],
+          ["ld", "f"],
+          ["fh", "f"],
+          ["fh2", "f"],
+          ["fsz", "f"],
+          ["fp", "f"],
+          ["frh", "f"],
+          ["frh2", "f"],
+          ["frs", "f"],
+          ["frm", "f"],
+          ["sw", "f"],
+          ["h", "f"],
+          ["rate", "f"],
+          ["life", "f"],
+          ["nl", "f"],
+          ["nw", "f"],
+          ["flex", "f"],
+          ["th", "f"],
+          ["wo", "f"],
+          ["ba", "f"],
+          ["bs", "f"],
+          ["bang", "f"],
+          ["bsag", "f"],
+          ["btw", "f"],
+          ["rd", "f"],
+          ["rl", "f"],
+          ["rang", "f"],
+          ["rlen", "f"],
+          ["rtw", "f"],
+          ["spine", "f"],
+          ["glow", "f"],
+          ["tox", "f"],
+          ["run", "f"],
+          ["mut", "f"],
+          ["spots", "f"],
+          ["cl", "f"],
+          ["sp", "f"],
+          ["lt", "i", 8],
+          ["form", "i", 6],
+          ["ft", "i", 7],
+          ["frt", "i", 7],
+          ["balg", "i", 3],
+          ["ra", "i", 4],
+          ["cap", "i", 4],
+          ["bdepth", "i", 2],
+          ["fun", "b"],
+          ["fl", "b"],
+          ["fr", "b"],
+          ["ann", "b"],
+          ["decid", "b"],
+          ["wpf", "b"],
+        ];
+        const GN = {
+          form: [
+            "upright stalk",
+            "branching bush",
+            "rosette",
+            "grass-like tuft",
+            "tree",
+            "creeping vine",
+          ],
+          cap: ["mushroom", "shelf fungus", "coral fungus", "puffball"],
+          lt: [
+            "oval",
+            "broad",
+            "lobed",
+            "blade",
+            "needle",
+            "round",
+            "heart-shaped",
+            "serrated",
+          ],
+          ft: ["daisy", "cup", "bell", "spike", "pompom", "star", "trumpet"],
+          frt: [
+            "round fruit",
+            "grape bunch",
+            "pod",
+            "burr",
+            "cherry",
+            "winged seed",
+            "gourd",
+          ],
+          fnm: [
+            "fruit",
+            "grape bunch",
+            "pod",
+            "burr",
+            "cherry",
+            "samara",
+            "gourd",
+          ],
+          ra: ["taproot", "fibrous roots", "shallow fan", "tuber"],
+        };
+        function hslHex(h, s, l) {
+          h = (((h % 360) + 360) % 360) / 360;
+          const f = (n) => {
+            const k = (n + h * 12) % 12,
+              a = s * Math.min(l, 1 - l),
+              c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+            return Math.round(clamp(c, 0, 1) * 255)
+              .toString(16)
+              .padStart(2, "0");
+          };
+          return "#" + f(0) + f(8) + f(4);
+        }
+        function randomGenome() {
+          const g = { gen: 0, ch: [] };
+          for (const [k, t, n] of GL)
+            g[k] =
+              t === "f"
+                ? Math.random()
+                : t === "i"
+                  ? Math.floor(Math.random() * n)
+                  : Math.random() < 0.5;
+          g.lh = Math.random() < 0.75 ? rand(0.2, 0.42) : Math.random();
+          g.lh2 = Math.random() < 0.5 ? rand(0.2, 0.42) : Math.random();
+          g.fun = Math.random() < 0.18;
+          g.fl = Math.random() < 0.65;
+          g.fr = Math.random() < 0.5;
+          g.ann = Math.random() < 0.25;
+          g.nl = rand(0.2, 0.75);
+          g.nw = rand(0.2, 0.7);
+          g.mut = rand(0.25, 0.6);
+          g.tox = Math.random() < 0.2 ? rand(0.7, 1) : rand(0, 0.5);
+          g.glow = Math.random() < 0.25 ? rand(0.8, 1) : rand(0, 0.6);
+          g.spine = Math.random() < 0.2 ? rand(0.6, 1) : rand(0, 0.5);
+          return g;
+        }
+        const MUTNOTE = {
+          fun: (g) => (g.fun ? "turned into a fungus" : "became a green plant"),
+          fl: (g) => (g.fl ? "gained flowers" : "lost its flowers"),
+          fr: (g) => (g.fr ? "began bearing fruit" : "stopped fruiting"),
+          form: (g) => "changed its body plan to " + GN.form[g.form],
+          ft: (g) => "grew " + GN.ft[g.ft] + " flowers",
+          frt: (g) => "now makes " + GN.frt[g.frt],
+          lt: (g) => "grew " + GN.lt[g.lt] + " leaves",
+          ra: (g) => "switched to " + GN.ra[g.ra],
+          balg: () => "changed how it branches",
+          cap: (g) => "became a " + GN.cap[g.cap],
+          ann: (g) => (g.ann ? "became an annual" : "became a perennial"),
+          decid: (g) =>
+            g.decid ? "began shedding its leaves" : "became evergreen",
+          wpf: (g) =>
+            g.wpf
+              ? "switched to wind pollination"
+              : "switched to insect pollination",
+          bdepth: () => "changed its twig pattern",
+        };
+        let lastMutLog = -9;
+        function childOf(gn, sc) {
+          sc = sc || 1;
+          const c = Object.assign({}, gn),
+            r = clamp(gn.mut, 0.05, 1) * sc,
+            ch = [];
+          c.gen = (gn.gen || 0) + 1;
+          for (const [k, t, n] of GL) {
+            if (t === "f") {
+              if (Math.random() < 0.3 + 0.3 * r)
+                c[k] = clamp(
+                  c[k] +
+                    (Math.random() + Math.random() + Math.random() - 1.5) *
+                      r *
+                      0.7,
+                  0,
+                  1,
+                );
+            } else if (t === "i") {
+              if (Math.random() < r * 0.05) {
+                const o = c[k];
+                c[k] = Math.floor(Math.random() * n);
+                if (c[k] !== o) ch.push(k);
+              }
+            } else if (Math.random() < r * (k === "fun" ? 0.02 : 0.05)) {
+              c[k] = !c[k];
+              ch.push(k);
+            }
+          }
+          if (Math.random() < 0.03 * r) {
+            for (let i = 0; i < 3; i++) {
+              const e = GL[Math.floor(Math.random() * 40)];
+              c[e[0]] = Math.random();
+            }
+          }
+          c.mut = clamp(c.mut + (Math.random() - 0.5) * 0.1, 0.1, 0.8);
+          c.ch = ch;
+          return c;
+        }
+        function describeGenome(g) {
+          const v = VP({ gn: g });
+          const a = [
+            `Generation ${g.gen || 0}`,
+            g.fun ? "a fungus (" + GN.cap[g.cap] + ")" : GN.form[g.form],
+          ];
+          if (!g.fun) {
+            a.push(GN.lt[g.lt] + " leaves");
+            a.push(g.fl ? GN.ft[g.ft] + " flowers" : "no flowers");
+            a.push(g.fr ? GN.frt[g.frt] : "no fruit");
+          }
+          a.push(
+            g.sw > 0.6
+              ? "heavy seeds"
+              : g.sw < 0.3
+                ? "feather-light seeds"
+                : "medium seeds",
+          );
+          if (!g.fun) a.push(GN.ra[g.ra]);
+          if (!g.fun && !v.simple)
+            a.push(["alternate", "opposite", "dense"][g.balg] + " branching");
+          if (v.glow) a.push("bioluminescent");
+          if (v.tox) a.push("toxic to animals");
+          if (g.spine > 0.55 && !g.fun) a.push("thorny");
+          if (g.run > 0.65 && !g.fun) a.push("sends runners");
+          return a.join(" · ");
+        }
+        function deriveV(g) {
+          const fun = !!g.fun,
+            form = fun ? 0 : g.form,
+            tree = !fun && form === 4,
+            vine = !fun && form === 5,
+            simple =
+              fun || form === 0 || form === 2 || form === 3 || form === 5;
+          const hasFl = !fun && g.fl,
+            hasFr = !fun && g.fr,
+            peak = g.sp * 3;
+          const season = [0, 1, 2, 3].map((i) => {
+            const d = Math.abs(i - peak),
+              dd = Math.min(d, 4 - d);
+            return clamp(0.25 + Math.exp((-dd * dd) / 1.3), 0.18, 1.2);
+          });
+          const fs = 3 + g.frs * 10,
+            fmax = clamp(Math.round((18 / fs) * (0.6 + g.frm)), 2, 12),
+            site =
+              vine || form === 2 || form === 3
+                ? "ground"
+                : simple
+                  ? "stem"
+                  : "branch";
+          const rg = [
+            { D: 1, L: 0.85, a: 0, tw: 1.1 },
+            { D: 0.55, L: 1.2, a: -0.1, tw: 0.55 },
+            { D: 0.4, L: 1.5, a: -0.12, tw: 0.7 },
+            { D: 0.7, L: 0.9, a: 0, tw: 1 },
+          ][g.ra];
+          const v = {
+            name: fun ? "Chimera fungus" : "Chimera",
+            gn: g,
+            stem: hslHex(g.sh * 360, fun ? 0.15 : 0.35, fun ? 0.85 : 0.4),
+            leaf: hslHex(
+              fun ? g.fh * 360 : g.lh * 360,
+              fun ? 0.65 : 0.4 + 0.35 * g.lsat,
+              fun ? 0.5 : 0.42,
+            ),
+            leaf2: hslHex(g.lh2 * 360, 0.55, 0.46),
+            needLight: fun ? 0.1 : 0.2 + 0.55 * g.nl,
+            needWater: 0.12 + 0.6 * g.nw,
+            rate: 0.55 + 0.9 * g.rate,
+            root: 0.6 + 0.9 * g.rd,
+            flower: hslHex(g.fh * 360, 0.75, 0.6),
+            flower2: hslHex(g.fh2 * 360, 0.8, 0.5),
+            season,
+            seeds: fun
+              ? Math.round(6 + 8 * (1 - g.sw))
+              : Math.round(3 + (1 - g.sw) * 9),
+            h: fun
+              ? 0.1 + 0.25 * g.h
+              : tree
+                ? 0.7 + 0.9 * g.h
+                : vine
+                  ? 0.2
+                  : form === 2
+                    ? 0.22 + 0.25 * g.h
+                    : form === 3
+                      ? 0.4 + 0.4 * g.h
+                      : 0.3 + 1.1 * g.h,
+            photo: 0.1 + 0.5 * g.nl,
+            flex: 0.2 + 1.3 * g.flex,
+            float: fun ? 1.1 : clamp(1.45 - 1.35 * g.sw, 0.05, 1.3),
+            annual: g.ann ? 1 : 0,
+            decid: fun ? 0 : g.decid ? 1 : 0,
+            bloom: hasFl ? 1 : 0,
+            wp: !hasFl || g.wpf ? 1 : 0,
+            rt: g.ra === 1 ? "fib" : "tap",
+            life: fun
+              ? 40 + g.life * 110
+              : g.ann
+                ? 40 + g.life * 45
+                : 80 + g.life * 480,
+            tree: tree ? 1 : 0,
+            heavy: 0.12 + 0.45 * g.bsag,
+            lmul: 0.8 + 0.6 * g.ba,
+            simple: simple ? 1 : 0,
+            vine: vine ? 1 : 0,
+            ff: (fun ? 10 : 14) + (1 - g.rate) * 16 + (tree ? 22 : 0),
+            bmax: 4 + Math.round(g.ba * 8) + (tree ? 2 : 0),
+            bsp: (tree ? 3.6 : 2.4) + (1 - g.bs) * 3,
+            bang: [0.15 + g.bang * 0.5, 0.45 + g.bang * 0.5],
+            twn: 1 + Math.round(g.btw * 3),
+            balg: g.balg,
+            bdepth: g.bdepth,
+            rg: {
+              nl: 5 + Math.round(g.rl * 10),
+              D: (44 + g.rd * 140) * rg.D,
+              tw: (1 + g.rtw * 2.2) * rg.tw,
+              ang: Math.max(0.02, 0.05 + g.rang * 0.6 + rg.a),
+              Lm: (28 + g.rlen * 46) * rg.L,
+              alg: g.ra,
+            },
+            form,
+            fungal: fun ? 1 : 0,
+            ls: g.lt,
+            lsz: 0.6 + g.lsz * 1.1,
+            woody: tree ? 0.8 : 0.15 + 0.6 * g.wo,
+            ft: g.ft,
+            fpn: 3 + Math.round(g.fp * 8),
+            fS: 6 + g.fsz * 18,
+            spine: !fun && g.spine > 0.55 ? g.spine : 0,
+            glow: g.glow > 0.75 ? g.glow : 0,
+            tox: g.tox > 0.7 ? 1 : 0,
+            spread:
+              !fun && g.run > 0.65
+                ? { every: 22 + (1 - g.run) * 30, min: 26, max: 70, cap: 10 }
+                : undefined,
+          };
+          if (hasFr)
+            v.fruit = {
+              kind: "gf" + g.frt,
+              nm: GN.fnm[g.frt],
+              max: fmax,
+              every: 10 + (1 - g.rate) * 18 + fs * 1.2,
+              ripe: 50 + fs * 8,
+              hold: 90 + fs * 6,
+              seeds: 1 + Math.round((1 - g.sw) * 3),
+              size: fs,
+              site,
+              col: [
+                hslHex(g.frh * 360, 0.5, 0.45),
+                hslHex(g.frh2 * 360, 0.75, 0.5),
+              ],
+            };
+          return v;
+        }
+
         /* ---------- simulation ---------- */
         function onNewDay() {
           if ((day - 1) % 12 === 0)
@@ -1745,7 +2139,7 @@
             );
           if ((day - 1) % 48 === 0)
             for (const p of plants)
-              if (!V[p.type].annual && p.state === "alive") {
+              if (!VP(p).annual && p.state === "alive") {
                 p.seedsMade = 0;
                 p.seedTimer = 0;
                 p.pollinated = false;
@@ -1776,7 +2170,7 @@
         }
 
         function addFruit(p) {
-          const v = V[p.type],
+          const v = VP(p),
             F = v.fruit,
             n = p.fruits.length,
             f = { g: 0, r: 0, age: 0, hold: 0 };
@@ -1801,7 +2195,7 @@
           return true;
         }
         function detachFruit(p, f) {
-          const F = V[p.type].fruit,
+          const F = VP(p).fruit,
             q = fruitLocalPos(p, f, ph(p)),
             oy = p.gy - soilY,
             i = p.fruits.indexOf(f);
@@ -1815,6 +2209,7 @@
               vy: 0,
               kind: F.kind,
               type: p.type,
+              gn: p.gn,
               col: F.col,
               r: f.r,
               g: f.g,
@@ -1946,7 +2341,7 @@
           fertility += (55 - fertility) * hours * 0.004;
           drain = 0;
           for (const p of plants) {
-            const v = V[p.type];
+            const v = VP(p);
             if (p.state === "dead") {
               p.deadT += hours * (1 + decompAt(p.x) * 2.5);
               if (p.deadT > 70) {
@@ -2008,16 +2403,22 @@
                 1 - Math.max(0, Math.abs(lm / 100 - v.needWater) - 0.22) / 0.6,
               ) *
               (0.3 + 0.7 * Math.min(1, p.water / 0.45));
-            const photo =
-              lightEff *
-              (0.35 + 0.65 * lightFit) *
-              tempFit *
-              waterFit *
-              v.season[season] *
-              fertFit *
-              (0.4 + 0.6 * p.leaf) *
-              (1 - 0.5 * frail) *
-              (1 + myco * 0.2);
+            const photo = v.fungal
+              ? (0.12 + 0.5 * waterFit) *
+                tempFit *
+                fertFit *
+                v.season[season] *
+                (1 - 0.5 * frail) *
+                (1 + myco * 0.2)
+              : lightEff *
+                (0.35 + 0.65 * lightFit) *
+                tempFit *
+                waterFit *
+                v.season[season] *
+                fertFit *
+                (0.4 + 0.6 * p.leaf) *
+                (1 - 0.5 * frail) *
+                (1 + myco * 0.2);
             const size = 0.3 + 0.7 * Math.min(1, p.age / 20);
             const rootSz =
               Math.min(1, 0.35 + p.roots.reduce((s, r) => s + r.len, 0) / 6) *
@@ -2066,38 +2467,44 @@
               p.age += growth;
               fertility = Math.max(8, fertility - growth * 0.012);
             }
-            const tree = !!v.tree;
+            const tree = !!v.tree,
+              bsp = v.bsp || (tree ? 5 : 3.2);
             p.stem = Math.min(1, p.age / (tree ? 70 : 34));
             const desired = Math.min(
-              tree ? 12 : 10,
-              Math.floor(p.age / (tree ? 5 : 3.2)),
+              v.bmax || (tree ? 12 : 10),
+              Math.floor(p.age / bsp),
             );
             while (p.branches.length < desired) {
+              const n = v.twn || 0,
+                ba = v.bang;
               p.branches.push({
                 side: p.branches.length % 2 ? 1 : -1,
                 len: 0,
-                angle: rand(0.35, 0.7),
+                angle: ba ? rand(ba[0], ba[1]) : rand(0.35, 0.7),
                 arch: rand(0.8, 1.3),
-                tw: [
-                  {
-                    t: rand(0.38, 0.55),
-                    L: rand(0.3, 0.42),
-                    rel: rand(0.35, 0.7),
-                  },
-                  {
-                    t: rand(0.66, 0.82),
-                    L: rand(0.22, 0.34),
-                    rel: -rand(0.15, 0.45),
-                  },
-                ],
+                tw: n
+                  ? Array.from({ length: n }, (_, k) => ({
+                      t: 0.3 + (0.55 * (k + rand(0.1, 0.9))) / n,
+                      L: rand(0.2, 0.4) * (1 - 0.12 * k),
+                      rel: (k % 2 ? -1 : 1) * rand(0.2, 0.7),
+                    }))
+                  : [
+                      {
+                        t: rand(0.38, 0.55),
+                        L: rand(0.3, 0.42),
+                        rel: rand(0.35, 0.7),
+                      },
+                      {
+                        t: rand(0.66, 0.82),
+                        L: rand(0.22, 0.34),
+                        rel: -rand(0.15, 0.45),
+                      },
+                    ],
               });
             }
             p.branches.forEach(
               (b, i) =>
-                (b.len = Math.min(
-                  1,
-                  Math.max(0, (p.age - (i + 1) * (tree ? 5 : 3.2)) / 5),
-                )),
+                (b.len = Math.min(1, Math.max(0, (p.age - (i + 1) * bsp) / 5))),
             );
             const rc = Math.min(9, Math.floor(p.age / 2.8) + 1);
             while (p.roots.length < rc)
@@ -2127,6 +2534,7 @@
               ) {
                 const hh = ph(p);
                 fall.push({
+                  k: v.gn ? v.leaf : null,
                   x: p.x + rand(-22, 22),
                   y: p.gy - hh * rand(0.25, 0.95),
                   vy: rand(18, 34),
@@ -2140,14 +2548,15 @@
               }
             } else p.leaf = Math.min(tl, p.leaf + hours * 0.03);
             /* flowering */
-            const fa = FIRST_FLOWER[p.type] || 18;
+            const fa = v.ff || FIRST_FLOWER[p.type] || 18;
             if (p.state === "alive" && p.age > fa) {
               const want =
                 1 +
                 (p.type === "wildflower" ||
                 p.type === "tomato" ||
                 p.type === "apple" ||
-                p.type === "blueberry"
+                p.type === "blueberry" ||
+                v.gn
                   ? Math.min(3, Math.floor((p.age - fa) / 7))
                   : 0);
               while (p.buds.length < want)
@@ -2228,6 +2637,7 @@
                   true,
                   true,
                   p.x,
+                  p.gn ? childOf(p.gn, 0.3) : null,
                 );
               }
             }
@@ -2253,6 +2663,7 @@
                     vx: windS * windNow * 60 * v.float + rand(-10, 10),
                     vy: rand(-26, -6),
                     type: p.type,
+                    gn: p.gn ? childOf(p.gn) : null,
                     age: 0,
                     landed: false,
                     wait: rand(3, 9),
@@ -2291,10 +2702,11 @@
           }
           updateFungi(hours, alt);
           updateDrops(hours, rdt);
+          updateAnimals(hours);
           /* seeds: wind-borne drift, landing, dormancy and germination */
           for (const s of seeds) {
             if (!s.landed) {
-              const fl = V[s.type].float;
+              const fl = VP(s).float;
               s.vx +=
                 (windS * windNow * 430 * fl - s.vx) * Math.min(1, rdt * 1.6);
               s.vy +=
@@ -2341,7 +2753,7 @@
               temp < 37
             ) {
               /* seedlings need elbow room: skip crowded spots so gaps stay open for other species */
-              const wd = V[s.type].annual ? 1 : 0;
+              const wd = VP(s).annual ? 1 : 0;
               let near = 0,
                 tooClose = false;
               for (const p of plants) {
@@ -2350,13 +2762,24 @@
                 if (d < 16 - wd * 6) tooClose = true;
                 if (d < 48) near++;
               }
-              if (!tooClose && near < 4 + wd * 3) {
-                plant(clamp(s.x, 18, WW - 18), s.type, true);
+              if (
+                !tooClose &&
+                near < 4 + wd * 3 &&
+                !(
+                  s.type === "chimera" &&
+                  plants.reduce(
+                    (n, q) =>
+                      n + (q.type === "chimera" && q.state !== "dead" ? 1 : 0),
+                    0,
+                  ) >= 45
+                )
+              ) {
+                plant(clamp(s.x, 18, WW - 18), s.type, true, false, null, s.gn);
                 s.gone = true;
                 continue;
               }
             }
-            if (s.age > (V[s.type].annual ? 900 : 480)) s.gone = true;
+            if (s.age > (VP(s).annual ? 900 : 480)) s.gone = true;
           }
           seeds = seeds.filter((s) => !s.gone);
         }
@@ -2377,6 +2800,8 @@
                 feed += 0.01 * hours * d.rot;
             for (const l of fall)
               if (l.landed && Math.abs(l.x - f.x) < 45) feed += 0.0016 * hours;
+            for (const c of corpses)
+              if (Math.abs(c.x - f.x) < 60) feed += 0.01 * hours;
             f.food = clamp(
               f.food +
                 feed -
@@ -2517,7 +2942,7 @@
           }
           for (const d of drops) {
             if (!d.done) continue;
-            const F = V[d.type].fruit;
+            const F = VP(d).fruit;
             if (d.state === "ground") {
               for (let k = 0; k < F.seeds; k++)
                 seeds.push({
@@ -2526,6 +2951,7 @@
                   vx: 0,
                   vy: 0,
                   type: d.type,
+                  gn: d.gn ? childOf(d.gn) : null,
                   age: 0,
                   landed: true,
                   wait: rand(3, 12),
@@ -2545,7 +2971,7 @@
         function flowerList() {
           const fl = [];
           for (const p of plants) {
-            if (p.state !== "alive" || p.germ < 1 || !V[p.type].bloom) continue;
+            if (p.state !== "alive" || p.germ < 1 || !VP(p).bloom) continue;
             for (const b of p.buds) if (b.open > 0.55) fl.push({ p, b });
           }
           return fl;
@@ -2624,8 +3050,8 @@
               if (
                 p.state === "alive" &&
                 p.buds.length &&
-                V[p.type].seeds > 0 &&
-                p.seedsMade < V[p.type].seeds &&
+                VP(p).seeds > 0 &&
+                p.seedsMade < VP(p).seeds &&
                 Math.random() < rdt * 1.5
               )
                 p.seedTimer = Math.max(p.seedTimer, 2.9);
@@ -2713,7 +3139,7 @@
           const sf = (sp.f - 0.5) * 2,
             tlk = Math.max(1, Math.min(speed, 10));
           for (const p of plants) {
-            const v = V[p.type];
+            const v = VP(p);
             p.sway =
               windS * windNow * 1.25 +
               (Math.sin(clockT * 1.5 + p.phase) * 0.6 +
@@ -2810,7 +3236,7 @@
                 if (!tp.pollinated) {
                   tp.pollinated = true;
                   log(
-                    `A ${g.kind === "bee" ? "bee" : "butterfly"} pollinated a ${V[tp.type].name.toLowerCase()}.`,
+                    `A ${g.kind === "bee" ? "bee" : "butterfly"} pollinated a ${VP(tp).name.toLowerCase()}.`,
                   );
                 }
                 g.t = null;
@@ -2882,11 +3308,12 @@
                 if (i2 >= 0) {
                   p.fruits.splice(i2, 1);
                   b.cargo = {
+                    gn: p.gn,
                     type: p.type,
-                    n: Math.max(1, V[p.type].fruit.seeds),
+                    n: Math.max(1, VP(p).fruit.seeds),
                   };
                   log(
-                    `A bird ate ${V[p.type].fruit.kind === "berry" ? "a berry" : "a " + V[p.type].fruit.kind} from a ${V[p.type].name.toLowerCase()}.`,
+                    `A bird ate ${"a " + (VP(p).fruit.nm || VP(p).fruit.kind)} from a ${VP(p).name.toLowerCase()}.`,
                   );
                 }
                 b.state = "leave";
@@ -2907,6 +3334,7 @@
                     vx: 0,
                     vy: 20,
                     type: b.cargo.type,
+                    gn: b.cargo.gn ? childOf(b.cargo.gn) : null,
                     age: 0,
                     landed: false,
                     wait: rand(3, 9),
@@ -2923,6 +3351,7 @@
                       vx: 0,
                       vy: 20,
                       type: b.cargo.type,
+                      gn: b.cargo.gn ? childOf(b.cargo.gn) : null,
                       age: 0,
                       landed: false,
                       wait: rand(3, 9),
@@ -2980,6 +3409,7 @@
               }
               if (Math.random() < rdt * 0.05) f.dir *= -1;
             }
+          moveAnimals(rdt);
         }
 
         /* ---------- drawing: plants ---------- */
@@ -2995,7 +3425,70 @@
             ctx.fillStyle = g;
           } else ctx.fillStyle = color;
           ctx.beginPath();
-          if (LS === 2) {
+          if (LS === 4) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = Math.max(1, s * 0.07);
+            ctx.lineCap = "round";
+            for (let k = -3; k <= 3; k++) {
+              ctx.moveTo(0, 0);
+              ctx.lineTo(
+                Math.cos(k * 0.22) * s * 1.2,
+                Math.sin(k * 0.22) * s * 1.2,
+              );
+            }
+            ctx.stroke();
+            ctx.restore();
+            return;
+          } else if (LS === 5) {
+            ctx.ellipse(s * 0.62, 0, s * 0.62, s * 0.6, 0, 0, 6.3);
+            ctx.fill();
+          } else if (LS === 6) {
+            ctx.moveTo(0, 0);
+            ctx.bezierCurveTo(
+              s * 0.1,
+              -s * 0.5,
+              s * 0.5,
+              -s * 0.85,
+              s * 0.85,
+              -s * 0.45,
+            );
+            ctx.bezierCurveTo(
+              s * 1.1,
+              -s * 0.2,
+              s * 1.2,
+              -s * 0.05,
+              s * 1.45,
+              0,
+            );
+            ctx.bezierCurveTo(
+              s * 1.2,
+              s * 0.05,
+              s * 1.1,
+              s * 0.2,
+              s * 0.85,
+              s * 0.45,
+            );
+            ctx.bezierCurveTo(s * 0.5, s * 0.85, s * 0.1, s * 0.5, 0, 0);
+            ctx.fill();
+          } else if (LS === 7) {
+            ctx.moveTo(0, 0);
+            for (let k = 1; k <= 7; k++) {
+              const t = k / 7;
+              ctx.lineTo(
+                s * 1.5 * t,
+                -s * 0.45 * Math.sin(t * 3.1) * (k % 2 ? 1 : 0.7),
+              );
+            }
+            for (let k = 7; k >= 1; k--) {
+              const t = k / 7;
+              ctx.lineTo(
+                s * 1.5 * t,
+                s * 0.45 * Math.sin(t * 3.1) * (k % 2 ? 1 : 0.7),
+              );
+            }
+            ctx.closePath();
+            ctx.fill();
+          } else if (LS === 2) {
             ctx.moveTo(s * 1.47, 0);
             ctx.ellipse(s * 0.75, 0, s * 0.72, s * 0.2, 0, 0, 6.3);
             for (let k = 0; k < 4; k++) {
@@ -3137,12 +3630,15 @@
           const dead = p.state === "dead",
             R = rng((p.phase * 100003) | 0),
             fib = v.rt === "fib",
-            NL = fib ? 13 : 9,
+            G = v.rg,
+            NL = G ? G.nl : fib ? 13 : 9,
             N = 10;
           const col = dead
             ? "#8a6a45"
             : mixc("#dcc796", [["#b59a68", clamp(1 - moisture / 70, 0, 0.5)]]);
-          const D = Math.min(fib ? 92 : 178, p.age * 3.6 + 6) * v.root;
+          const D =
+            Math.min(G ? G.D : fib ? 92 : 178, p.age * 3.6 + 6) *
+            (G ? 1 : v.root);
           const pts = [[p.x, soilY + 1]];
           let a = 0,
             x = p.x,
@@ -3154,7 +3650,7 @@
             y += Math.cos(a) * st;
             pts.push([x, y]);
           }
-          const tw = fib ? 1.5 : 2.8;
+          const tw = G ? G.tw : fib ? 1.5 : 2.8;
           for (let i = 0; i < N; i++) {
             const A = pts[i],
               B = pts[i + 1];
@@ -3163,6 +3659,18 @@
             ctx.beginPath();
             ctx.moveTo(A[0], A[1]);
             ctx.lineTo(B[0], B[1]);
+            ctx.stroke();
+          }
+          if (G && G.alg === 3 && !dead) {
+            const bs = clamp(3 + p.age * 0.18, 3, 12);
+            ctx.fillStyle = "#c9a46a";
+            ctx.beginPath();
+            ctx.ellipse(p.x, soilY + bs * 1.2 + 2, bs * 0.9, bs, 0, 0, 6.3);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(120,90,50,.4)";
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.arc(p.x - bs * 0.2, soilY + bs * 1.2, bs * 0.35, 0.4, 2.4);
             ctx.stroke();
           }
           const L1 = [],
@@ -3194,12 +3702,22 @@
               ]);
             if (g <= 0) continue;
             const Lm =
-              (fib ? 66 : 50) *
-              v.root *
-              (1 - f * (fib ? 0.45 : 0.55)) *
+              (G ? G.Lm : fib ? 66 : 50) *
+              (G ? 1 : v.root) *
+              (1 -
+                f *
+                  (G
+                    ? G.alg === 2
+                      ? 0.2
+                      : G.alg === 1
+                        ? 0.45
+                        : 0.55
+                    : fib
+                      ? 0.45
+                      : 0.55)) *
               (0.65 + 0.6 * r1) *
               g;
-            const ang = (fib ? 0.1 : 0.2) + r2 * 0.5,
+            const ang = (G ? G.ang : fib ? 0.1 : 0.2) + r2 * 0.5,
               dx = side * Math.cos(ang),
               dy = Math.sin(ang);
             const ex = sx + dx * Lm,
@@ -3792,6 +4310,169 @@
               ctx.lineTo(-r * 0.2, -r * 1.8);
               ctx.stroke();
               break;
+            case "gf1":
+              ctx.strokeStyle = "#5a3d22";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(0, -r * 2.2);
+              ctx.lineTo(0, -r * 1.2);
+              ctx.stroke();
+              for (const [ox, oy2] of [
+                [-r * 0.9, -r * 0.2],
+                [r * 0.9, -r * 0.2],
+                [0, -r * 0.8],
+                [-r * 0.45, r * 0.7],
+                [r * 0.45, r * 0.7],
+                [0, r * 1.7],
+                [-r * 0.9, r * 0.9],
+                [r * 0.9, r * 0.9],
+              ]) {
+                ctx.fillStyle = c;
+                ctx.beginPath();
+                ctx.arc(ox * 0.8, oy2 * 0.8, r * 0.5, 0, 6.3);
+                ctx.fill();
+                ctx.fillStyle = "rgba(255,255,255,.3)";
+                ctx.beginPath();
+                ctx.arc(
+                  ox * 0.8 - r * 0.15,
+                  oy2 * 0.8 - r * 0.15,
+                  r * 0.12,
+                  0,
+                  6.3,
+                );
+                ctx.fill();
+              }
+              break;
+            case "gf2":
+              ctx.strokeStyle = "#5a3d22";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(0, -r * 1.2);
+              ctx.lineTo(0, -r * 0.6);
+              ctx.stroke();
+              for (let k = 0; k < 5; k++) {
+                const t = k / 4;
+                ctx.fillStyle = c;
+                ctx.beginPath();
+                ctx.ellipse(
+                  Math.sin(t * 2) * r * 0.5,
+                  -r * 0.4 + k * r * 0.62,
+                  r * 0.4,
+                  r * 0.42,
+                  Math.sin(t * 2) * 0.4,
+                  0,
+                  6.3,
+                );
+                ctx.fill();
+              }
+              ctx.strokeStyle = "rgba(0,0,0,.25)";
+              ctx.lineWidth = 0.8;
+              ctx.beginPath();
+              ctx.moveTo(0, -r * 0.5);
+              for (let k = 1; k < 5; k++)
+                ctx.lineTo(
+                  Math.sin((k / 4) * 2) * r * 0.5 + r * 0.1,
+                  -r * 0.4 + k * r * 0.62,
+                );
+              ctx.stroke();
+              break;
+            case "gf3":
+              ctx.strokeStyle = mixc(c, [["#000000", 0.35]]);
+              ctx.lineWidth = 1.1;
+              ctx.beginPath();
+              for (let k = 0; k < 14; k++) {
+                const a = k * 0.449;
+                ctx.moveTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
+                ctx.lineTo(Math.cos(a) * r * 1.45, Math.sin(a) * r * 1.45);
+              }
+              ctx.stroke();
+              ctx.fillStyle = c;
+              ctx.beginPath();
+              ctx.arc(0, 0, r * 0.9, 0, 6.3);
+              ctx.fill();
+              ctx.fillStyle = "rgba(255,255,255,.2)";
+              ctx.beginPath();
+              ctx.arc(-r * 0.3, -r * 0.3, r * 0.25, 0, 6.3);
+              ctx.fill();
+              break;
+            case "gf4":
+              ctx.strokeStyle = "#5a7a38";
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(-r * 0.6, r * 0.3);
+              ctx.quadraticCurveTo(-r * 0.2, -r * 1.4, r * 0.3, -r * 2);
+              ctx.moveTo(r * 0.7, r * 0.4);
+              ctx.quadraticCurveTo(r * 0.5, -r * 1.2, r * 0.3, -r * 2);
+              ctx.stroke();
+              for (const ox of [-r * 0.6, r * 0.7]) {
+                ctx.fillStyle = c;
+                ctx.beginPath();
+                ctx.arc(ox, r * 0.4, r * 0.72, 0, 6.3);
+                ctx.fill();
+                ctx.fillStyle = "rgba(255,255,255,.32)";
+                ctx.beginPath();
+                ctx.ellipse(
+                  ox - r * 0.25,
+                  r * 0.15,
+                  r * 0.14,
+                  r * 0.24,
+                  0.5,
+                  0,
+                  6.3,
+                );
+                ctx.fill();
+              }
+              break;
+            case "gf5":
+              ctx.save();
+              ctx.rotate(0.5 + Math.sin(clockT * 3 + x) * 0.12);
+              ctx.fillStyle = mixc(c, [["#ffffff", 0.25]]);
+              ctx.globalAlpha *= 0.85;
+              ctx.beginPath();
+              ctx.ellipse(0, -r * 1.2, r * 0.55, r * 1.5, 0, 0, 6.3);
+              ctx.fill();
+              ctx.globalAlpha = 1;
+              ctx.fillStyle = c;
+              ctx.beginPath();
+              ctx.ellipse(0, r * 0.3, r * 0.5, r * 0.62, 0, 0, 6.3);
+              ctx.fill();
+              ctx.strokeStyle = "rgba(0,0,0,.2)";
+              ctx.lineWidth = 0.7;
+              ctx.beginPath();
+              ctx.moveTo(0, r * 0.2);
+              ctx.lineTo(0, -r * 2.4);
+              ctx.stroke();
+              ctx.restore();
+              break;
+            case "gf6":
+              ctx.fillStyle = c;
+              ctx.beginPath();
+              ctx.arc(0, r * 0.45, r * 0.95, 0, 6.3);
+              ctx.arc(0, -r * 0.7, r * 0.55, 0, 6.3);
+              ctx.fill();
+              ctx.strokeStyle = "rgba(0,0,0,.2)";
+              ctx.lineWidth = 0.8;
+              for (const k of [-0.5, 0, 0.5]) {
+                ctx.beginPath();
+                ctx.ellipse(
+                  0,
+                  r * 0.45,
+                  Math.abs(k) * r + 0.1,
+                  r * 0.95,
+                  0,
+                  -1.5,
+                  1.5,
+                );
+                ctx.stroke();
+              }
+              ctx.strokeStyle = "#5f7a3a";
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(0, -r * 1.2);
+              ctx.lineTo(r * 0.2, -r * 1.6);
+              ctx.stroke();
+              break;
+            case "gf0":
             default:
               ctx.fillStyle = c;
               ctx.beginPath();
@@ -3835,7 +4516,7 @@
         }
 
         function drawPlant(p) {
-          const v = V[p.type],
+          const v = VP(p),
             dead = p.state === "dead",
             season = seasonIndex(),
             oy = p.gy - soilY;
@@ -3874,8 +4555,9 @@
             ["#6b5226", dy],
             ["#4a3a28", dd],
           ]);
-          LS =
-            p.type === "oak" || p.type === "dandelion" || p.type === "poppy"
+          LS = v.gn
+            ? v.ls
+            : p.type === "oak" || p.type === "dandelion" || p.type === "poppy"
               ? 2
               : p.type === "sunflower" || p.type === "pumpkin"
                 ? 1
@@ -3887,15 +4569,25 @@
             ["#a9863d", dy * 0.6],
             ["#6e5638", dd],
           ];
+          const col2 = v.gn
+            ? mixc(v.leaf2, [
+                ["#c9b24a", yel * 0.8],
+                ["#d98a35", aut * 0.8],
+                ["#a9863d", dy],
+                ["#6e5638", dd],
+              ])
+            : col;
           const woody =
-            {
-              oak: 0.85,
-              apple: 0.8,
-              blueberry: 0.55,
-              lavender: 0.4,
-              tomato: 0.25,
-              sunflower: 0.2,
-            }[p.type] * Math.min(1, p.age / 40) || 0.08;
+            (v.gn
+              ? v.woody
+              : {
+                  oak: 0.85,
+                  apple: 0.8,
+                  blueberry: 0.55,
+                  lavender: 0.4,
+                  tomato: 0.25,
+                  sunflower: 0.2,
+                }[p.type]) * Math.min(1, p.age / 40) || 0.08;
           const top = stemPt(p, 1, H);
           if (p.age < 3) {
             stem(p, H, 2.2, v, 0, tint);
@@ -3904,6 +4596,10 @@
             leaf(top[0], top[1], cs, ld(-1, 0.2 - p.droop * 0.3), col);
           } else
             switch (p.type) {
+              case "chimera": {
+                drawGenome(p, v, H, col, col2, tint, top, dd);
+                break;
+              }
               case "cactus": {
                 const w = (9 + p.stem * 15 * p.g.h) * (1 - p.droop * 0.15),
                   tc = mixc(v.stem, tint),
@@ -4592,6 +5288,13 @@
           if (p.age >= 3)
             for (let bi = 0; bi < p.buds.length; bi++) {
               const b = p.buds[bi];
+              if (v.gn) {
+                if (v.bloom) {
+                  const pp = flowerLocal(p, b);
+                  drawGnFlower(pp[0], pp[1] - 2, b, p, v);
+                }
+                continue;
+              }
               if (
                 p.type === "fern" ||
                 p.type === "grass" ||
@@ -4679,6 +5382,7 @@
               );
             }
           }
+          if (v.gn && v.glow && !dead) drawGlow(p, v, H, top);
           if (p === sel && !dead) {
             ctx.globalAlpha = 1;
             const my =
@@ -5067,6 +5771,1384 @@
           ctx.ellipse(-1, -5 * Math.abs(fl) - 1, 7, 2.4, -0.2, 0, 6.3);
           ctx.fill();
           ctx.restore();
+          ctx.restore();
+        }
+
+        /* ---------- drawing the Chimera: every part is driven by its genome ---------- */
+        function drawGnFlower(x, y, b, p, v) {
+          if (b.mat < 0.04) return;
+          const o = b.open,
+            R = v.fS * b.mat,
+            c1 = v.flower,
+            c2 = v.flower2,
+            n = v.fpn;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(p.sway * 0.03);
+          if (o < 0.2) {
+            ctx.fillStyle = mixc(v.leaf, [[c1, 0.3 + 0.4 * b.mat]]);
+            ctx.beginPath();
+            ctx.ellipse(0, -R * 0.35, R * 0.26 + 1, R * 0.5 + 1.5, 0, 0, 6.3);
+            ctx.fill();
+          } else
+            switch (v.ft) {
+              case 0:
+                ctx.fillStyle = c1;
+                for (let i = 0; i < n + 3; i++) {
+                  ctx.save();
+                  ctx.rotate((i * 6.283) / (n + 3));
+                  ctx.beginPath();
+                  ctx.ellipse(
+                    0,
+                    -R * (0.45 + 0.45 * o),
+                    R * 0.2 * o + 0.5,
+                    R * (0.3 + 0.5 * o),
+                    0,
+                    0,
+                    6.3,
+                  );
+                  ctx.fill();
+                  ctx.restore();
+                }
+                ctx.fillStyle = c2;
+                ctx.beginPath();
+                ctx.arc(0, 0, R * 0.26 * o + 0.5, 0, 6.3);
+                ctx.fill();
+                break;
+              case 1:
+                for (const s of [-1, 1, 0]) {
+                  ctx.save();
+                  ctx.rotate(s * o * 0.45);
+                  ctx.fillStyle = s
+                    ? mixc(c1, [["#000000", 0.12]])
+                    : mixc(c1, [["#ffffff", 0.14]]);
+                  ctx.beginPath();
+                  ctx.ellipse(
+                    s * R * 0.2,
+                    -R * 0.7,
+                    R * 0.38,
+                    R * 0.9,
+                    0,
+                    0,
+                    6.3,
+                  );
+                  ctx.fill();
+                  ctx.restore();
+                }
+                ctx.fillStyle = c2;
+                for (let i = -1; i <= 1; i++) {
+                  ctx.beginPath();
+                  ctx.arc(i * R * 0.17, -R * (0.95 + o * 0.15), 1.4, 0, 6.3);
+                  ctx.fill();
+                }
+                break;
+              case 2: {
+                const by = R * 0.9;
+                ctx.strokeStyle = v.stem;
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(R * 0.1, R * 0.3, 0, by * 0.4);
+                ctx.stroke();
+                ctx.fillStyle = c1;
+                ctx.beginPath();
+                ctx.moveTo(-R * 0.15, by * 0.4);
+                ctx.quadraticCurveTo(
+                  -R * 0.7 * o,
+                  by * 1.1,
+                  -R * 0.75 * o,
+                  by * 1.5,
+                );
+                ctx.lineTo(R * 0.75 * o, by * 1.5);
+                ctx.quadraticCurveTo(R * 0.7 * o, by * 1.1, R * 0.15, by * 0.4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = mixc(c1, [["#000000", 0.2]]);
+                ctx.beginPath();
+                ctx.ellipse(0, by * 1.5, R * 0.75 * o, R * 0.14, 0, 0, 6.3);
+                ctx.fill();
+                ctx.strokeStyle = c2;
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(0, by);
+                ctx.lineTo(0, by * 1.5 + R * 0.35);
+                ctx.stroke();
+                break;
+              }
+              case 3:
+                for (let k = 0; k < 7; k++) {
+                  const f = 1 - k * 0.08;
+                  ctx.fillStyle = k % 2 ? c1 : mixc(c1, [[c2, 0.35]]);
+                  ctx.beginPath();
+                  ctx.ellipse(
+                    -R * 0.12,
+                    -k * R * 0.3 * o,
+                    R * 0.2 * f * o + 0.5,
+                    R * 0.16 * o + 0.6,
+                    -0.5,
+                    0,
+                    6.3,
+                  );
+                  ctx.ellipse(
+                    R * 0.12,
+                    -k * R * 0.3 * o - R * 0.1,
+                    R * 0.2 * f * o + 0.5,
+                    R * 0.16 * o + 0.6,
+                    0.5,
+                    0,
+                    6.3,
+                  );
+                  ctx.fill();
+                }
+                break;
+              case 4:
+                ctx.strokeStyle = c1;
+                ctx.lineWidth = 0.9;
+                ctx.beginPath();
+                for (let i = 0; i < n * 3; i++) {
+                  const a = i * 2.399,
+                    L = R * 0.55 * o;
+                  ctx.moveTo(0, -R * 0.5);
+                  ctx.lineTo(Math.cos(a) * L, -R * 0.5 + Math.sin(a) * L);
+                }
+                ctx.stroke();
+                ctx.fillStyle = c1;
+                for (let i = 0; i < n * 3; i++) {
+                  const a = i * 2.399,
+                    L = R * 0.55 * o;
+                  ctx.beginPath();
+                  ctx.arc(
+                    Math.cos(a) * L,
+                    -R * 0.5 + Math.sin(a) * L,
+                    1.1,
+                    0,
+                    6.3,
+                  );
+                  ctx.fill();
+                }
+                ctx.fillStyle = c2;
+                ctx.beginPath();
+                ctx.arc(0, -R * 0.5, R * 0.2 * o + 0.5, 0, 6.3);
+                ctx.fill();
+                break;
+              case 5: {
+                const k = Math.max(4, n - 1);
+                ctx.fillStyle = c1;
+                ctx.beginPath();
+                for (let i = 0; i < k * 2; i++) {
+                  const a = (i * Math.PI) / k - 1.57,
+                    rr =
+                      (i % 2 ? R * 0.3 : R * (0.5 + 0.45 * o)) *
+                      (o > 0.3 ? 1 : 0.5);
+                  ctx.lineTo(Math.cos(a) * rr, -R * 0.55 + Math.sin(a) * rr);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = c2;
+                ctx.beginPath();
+                ctx.arc(0, -R * 0.55, R * 0.17 * o + 0.4, 0, 6.3);
+                ctx.fill();
+                break;
+              }
+              default:
+                ctx.fillStyle = c1;
+                ctx.beginPath();
+                ctx.moveTo(-R * 0.14, 0);
+                ctx.lineTo(-R * 0.72 * o, -R * 1.1);
+                ctx.ellipse(
+                  0,
+                  -R * 1.1,
+                  R * 0.72 * o,
+                  R * 0.24,
+                  0,
+                  Math.PI,
+                  0,
+                  true,
+                );
+                ctx.lineTo(R * 0.72 * o, -R * 1.1);
+                ctx.lineTo(R * 0.14, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = c2;
+                ctx.beginPath();
+                ctx.ellipse(0, -R * 1.1, R * 0.48 * o, R * 0.15, 0, 0, 6.3);
+                ctx.fill();
+                ctx.fillStyle = mixc(c1, [["#ffffff", 0.5]]);
+                ctx.beginPath();
+                ctx.arc(0, -R * 1.2, 1.1, 0, 6.3);
+                ctx.fill();
+            }
+          ctx.restore();
+        }
+        function drawGlow(p, v, H, top) {
+          const a = v.glow * (1 - dlNow) * 0.55;
+          if (a < 0.03) return;
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          const R = 26 + H * 0.28,
+            gr = ctx.createRadialGradient(
+              top[0],
+              top[1] + H * 0.2,
+              0,
+              top[0],
+              top[1] + H * 0.2,
+              R,
+            );
+          const c = hslHex(v.gn.fh * 360, 0.9, 0.6);
+          const rgb2 = rgb(c);
+          gr.addColorStop(0, `rgba(${rgb2[0]},${rgb2[1]},${rgb2[2]},${a})`);
+          gr.addColorStop(1, `rgba(${rgb2[0]},${rgb2[1]},${rgb2[2]},0)`);
+          ctx.fillStyle = gr;
+          ctx.fillRect(top[0] - R, top[1] + H * 0.2 - R, R * 2, R * 2);
+          ctx.restore();
+        }
+        function drawGnFungus(p, v, H, dd) {
+          const g = v.gn,
+            W = Math.max(5, H * 0.42 + 3),
+            cc = mixc(v.leaf, [["#6e5638", dd]]),
+            sc = mixc(v.stem, [["#6e5638", dd]]),
+            n = 1 + Math.floor(g.cl * 2.99);
+          for (let j = 0; j < n; j++) {
+            const ox = [0, -W * 0.95, W * 0.85][j],
+              hh = H * [1, 0.62, 0.48][j],
+              x = p.x + ox,
+              lean = p.sway * 0.5;
+            ctx.save();
+            ctx.translate(x, soilY);
+            if (g.cap === 0) {
+              ctx.fillStyle = sc;
+              ctx.beginPath();
+              ctx.moveTo(-W * 0.2, 0);
+              ctx.lineTo(-W * 0.13 + lean * 0.3, -hh);
+              ctx.lineTo(W * 0.13 + lean * 0.3, -hh);
+              ctx.lineTo(W * 0.2, 0);
+              ctx.fill();
+              ctx.fillStyle = mixc(sc, [["#000000", 0.12]]);
+              ctx.beginPath();
+              ctx.ellipse(lean * 0.2, -hh * 0.55, W * 0.2, W * 0.05, 0, 0, 6.3);
+              ctx.fill();
+              ctx.fillStyle = cc;
+              ctx.beginPath();
+              ctx.ellipse(
+                lean * 0.3,
+                -hh,
+                W * 0.9,
+                hh * 0.55 + 3,
+                0,
+                Math.PI,
+                0,
+              );
+              ctx.fill();
+              ctx.fillStyle = mixc(cc, [["#000000", 0.25]]);
+              ctx.beginPath();
+              ctx.ellipse(
+                lean * 0.3,
+                -hh,
+                W * 0.9,
+                hh * 0.1 + 1,
+                0,
+                0,
+                Math.PI,
+              );
+              ctx.fill();
+              if (g.spots > 0.4) {
+                ctx.fillStyle = "rgba(255,255,255,.85)";
+                for (const [a, b, r] of [
+                  [-0.4, -0.3, 0.13],
+                  [0.3, -0.45, 0.16],
+                  [0.55, -0.15, 0.1],
+                  [-0.1, -0.55, 0.09],
+                ]) {
+                  ctx.beginPath();
+                  ctx.arc(a * W + lean * 0.3, -hh + b * hh, r * W, 0, 6.3);
+                  ctx.fill();
+                }
+              }
+            } else if (g.cap === 1) {
+              ctx.fillStyle = "#5a4330";
+              ctx.fillRect(-W * 0.3, -hh * 1.1, W * 0.6, hh * 1.1);
+              for (let k = 0; k < 3; k++) {
+                const sd = k % 2 ? 1 : -1,
+                  y = -hh * (0.3 + 0.28 * k),
+                  bw = W * (1.05 - 0.17 * k);
+                ctx.fillStyle = mixc(cc, [["#000000", k * 0.1]]);
+                ctx.beginPath();
+                ctx.ellipse(
+                  sd * W * 0.3,
+                  y,
+                  bw,
+                  hh * 0.18 + 1,
+                  sd * 0.08,
+                  0,
+                  Math.PI,
+                );
+                ctx.fill();
+                ctx.fillStyle = mixc(cc, [["#ffffff", 0.5]]);
+                ctx.beginPath();
+                ctx.ellipse(
+                  sd * W * 0.3,
+                  y,
+                  bw,
+                  hh * 0.05 + 0.5,
+                  0,
+                  0,
+                  Math.PI,
+                );
+                ctx.fill();
+              }
+            } else if (g.cap === 2) {
+              ctx.strokeStyle = cc;
+              ctx.lineCap = "round";
+              ctx.lineWidth = Math.max(1.4, W * 0.2);
+              for (let k = -2; k <= 2; k++) {
+                const L = hh * (0.75 + 0.25 * Math.cos(k * 1.7 + p.phase)),
+                  bx = k * W * 0.3,
+                  tx = bx + k * W * 0.25 + lean * 0.5;
+                ctx.beginPath();
+                ctx.moveTo(bx * 0.4, 0);
+                ctx.quadraticCurveTo(bx, -L * 0.55, tx, -L);
+                ctx.stroke();
+                ctx.fillStyle = mixc(cc, [["#ffffff", 0.35]]);
+                ctx.beginPath();
+                ctx.arc(tx, -L, 1.7, 0, 6.3);
+                ctx.fill();
+              }
+            } else {
+              const r = W * 0.7;
+              ctx.fillStyle = cc;
+              ctx.beginPath();
+              ctx.arc(lean * 0.3, -r * 0.9, r, 0, 6.3);
+              ctx.fill();
+              ctx.fillStyle = "rgba(255,255,255,.2)";
+              ctx.beginPath();
+              ctx.arc(lean * 0.3 - r * 0.25, -r * 1.1, r * 0.5, 0, 6.3);
+              ctx.fill();
+              ctx.fillStyle = "rgba(0,0,0,.35)";
+              ctx.beginPath();
+              ctx.ellipse(lean * 0.3, -r * 1.85, r * 0.2, r * 0.1, 0, 0, 6.3);
+              ctx.fill();
+            }
+            ctx.restore();
+          }
+        }
+        function drawGenome(p, v, H, col, col2, tint, top, dd) {
+          const g = v.gn;
+          if (v.fungal) {
+            drawGnFungus(p, v, H, dd);
+            return;
+          }
+          const form = v.form,
+            tree = !!v.tree,
+            woody = v.woody * Math.min(1, p.age / 40),
+            ls = v.lsz,
+            tw =
+              (tree ? 3 + p.stem * 6 : 1.4 + p.stem * 2.6 * (0.6 + g.th)) *
+              (0.8 + 0.2 * p.g.h);
+          const lc = (i) => (i % 2 ? col2 : col);
+          if (form === 2) {
+            if (H > 14) stem(p, H, tw * 0.8, v, 0, tint);
+            const n = 6 + Math.round(g.ld * 9);
+            for (let i = 0; i < n; i++) {
+              const a = -3.0 + ((i + 0.5) / n) * 2.85,
+                sz =
+                  (8 + p.stem * 20) *
+                  ls *
+                  p.leaf *
+                  (0.7 + 0.3 * Math.sin(i * 2.3));
+              leaf(
+                p.x + (i / n - 0.5) * 5,
+                soilY - 2,
+                sz,
+                a +
+                  p.droop * (i < n / 2 ? -0.5 : 0.5) * 0.6 +
+                  Math.sin(clockT * 1.4 + i) * 0.03 * windNow,
+                lc(i),
+              );
+            }
+          } else if (form === 3) {
+            const n = 6 + Math.round(g.ld * 12);
+            for (let i = 0; i < n; i++) {
+              const r = Math.abs(Math.sin(i * 12.9898 + p.phase * 78.233)),
+                r2 = Math.abs(Math.sin(i * 4.1414 + p.phase * 3.3)),
+                h = H * (0.45 + 0.55 * r);
+              curve(
+                p,
+                i === 0 ? H : h,
+                i === 0 ? 0 : (r2 - 0.5) * 1.1,
+                2.3 * (0.6 + g.th),
+                i % 2 ? col2 : col,
+                8,
+              );
+            }
+          } else if (form === 5) {
+            const VL = 10 + p.stem * 150,
+              segs = Math.max(2, Math.floor(VL / 12));
+            let prev = vinePt(p, 0);
+            ctx.strokeStyle = mixc(v.stem, tint);
+            ctx.lineCap = "round";
+            for (let i = 1; i <= segs; i++) {
+              const t = i / segs,
+                q = vinePt(p, t);
+              ctx.lineWidth = Math.max(1.2, 2.8 * (1 - t * 0.6));
+              ctx.beginPath();
+              ctx.moveTo(prev[0], prev[1]);
+              ctx.lineTo(q[0], q[1]);
+              ctx.stroke();
+              prev = q;
+            }
+            const nl = Math.floor(VL / (30 - g.ld * 16));
+            for (let i = 0; i < nl; i++) {
+              const t = (i + 0.5) / (nl + 0.3),
+                q = vinePt(p, t),
+                sz = (8 + p.stem * 9) * p.leaf * ls * (1 - t * 0.3),
+                st = (6 + sz * 0.5) * (1 - p.droop * 0.5),
+                up = i % 2 ? 1 : -1;
+              ctx.strokeStyle = mixc(v.stem, tint);
+              ctx.lineWidth = 1.3;
+              ctx.beginPath();
+              ctx.moveTo(q[0], q[1]);
+              ctx.lineTo(q[0] + up * 3, q[1] - st);
+              ctx.stroke();
+              leaf(
+                q[0] + up * 3,
+                q[1] - st,
+                sz,
+                ld(up, 0.25 - p.droop * 0.3 + fold * 0.3),
+                lc(i),
+              );
+            }
+          } else {
+            stem(p, H, tw, v, woody, tint);
+            const sp = Math.max(4, (5 + 11 * (1 - g.ld)) * v.h * p.g.h),
+              sizeMax = (5 + Math.min(H, 170) * 0.07) * ls * (tree ? 1.15 : 1);
+            if (p.age < 28) {
+              const cs = 6 * clamp(1 - (p.age - 10) / 18, 0, 1);
+              if (cs > 1.5) {
+                const q = stemPt(p, 0.04, H);
+                leaf(q[0], q[1], cs, ld(1, 0.15 - p.droop * 0.4), col);
+                leaf(q[0], q[1], cs, ld(-1, 0.15 - p.droop * 0.4), col);
+              }
+            }
+            for (let i = 0; i * sp + 5 < H * 0.94; i++) {
+              const ha = 5 + i * sp,
+                t = ha / H,
+                d = H - ha,
+                u = clamp((d - 8) / (26 + H * 0.14), 0, 1);
+              if (t < Math.min(0.18, (p.age - 22) * 0.004)) continue;
+              const sd = i % 2 ? 1 : -1,
+                f = 0.5 + 0.5 * Math.sin(Math.PI * (0.15 + 0.7 * (1 - t))),
+                sz =
+                  sizeMax *
+                  f *
+                  (0.7 + 0.3 * Math.cos(i * 2.4)) *
+                  p.leaf *
+                  (0.25 + 0.75 * u);
+              if (sz < 2.2) continue;
+              const q = stemPt(p, t, H),
+                el = lerp(
+                  1.4,
+                  Math.max(
+                    -0.2,
+                    0.5 + Math.sin(i * 1.9) * 0.25 - p.droop * 1.1 + fold * 0.5,
+                  ),
+                  u,
+                ),
+                pl = sz * 0.28 * u,
+                bx = q[0] + sd * Math.cos(el) * pl,
+                by = q[1] - Math.sin(el) * pl * 0.8;
+              if (pl > 1.5) {
+                ctx.strokeStyle = mixc(v.stem, tint);
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(q[0], q[1]);
+                ctx.lineTo(bx, by);
+                ctx.stroke();
+              }
+              leaf(bx, by, sz, ld(sd, el), lc(i));
+            }
+            if (!v.simple) {
+              const heavy = v.heavy;
+              p.branches.forEach((b, i) => {
+                if (b.len <= 0) return;
+                const gm = branchGeom(p, i, H),
+                  bc = mixc(v.stem, [["#8d6c46", woody * 0.8]].concat(tint)),
+                  bw = (1.1 + tw * 0.34) * (0.45 + 0.55 * b.len);
+                const cx = gm.ox + gm.side * gm.L * 0.55,
+                  cy = Math.min(gm.oy, gm.ty) - gm.L * 0.22 * b.arch;
+                limb(gm.ox, gm.oy, cx, cy, gm.tx, gm.ty, bw, bw * 0.4, bc, 3);
+                ctx.fillStyle = bc;
+                ctx.beginPath();
+                ctx.ellipse(gm.ox, gm.oy, bw * 0.75, bw * 1.05, 0, 0, 6.3);
+                ctx.fill();
+                for (const t of b.tw) {
+                  const u = clamp((b.len - t.t * 0.55) / 0.45, 0, 1);
+                  if (u <= 0.02) continue;
+                  const q = qpt(gm.ox, gm.oy, cx, cy, gm.tx, gm.ty, t.t),
+                    an = gm.el + t.rel - p.droop * 0.5,
+                    tl = gm.L * t.L * u,
+                    tx2 = q[0] + gm.side * Math.cos(an) * tl,
+                    ty2 = q[1] - Math.sin(an) * tl + tl * heavy * 0.8;
+                  limb(
+                    q[0],
+                    q[1],
+                    lerp(q[0], tx2, 0.5),
+                    lerp(q[1], ty2, 0.5) - tl * 0.18,
+                    tx2,
+                    ty2,
+                    bw * 0.55,
+                    bw * 0.25,
+                    bc,
+                    1,
+                  );
+                  if (v.bdepth && u > 0.5) {
+                    for (const s2 of [-1, 1]) {
+                      const a2 = an + s2 * 0.7,
+                        l2 = tl * 0.45,
+                        ex = tx2 + gm.side * Math.cos(a2) * l2,
+                        ey = ty2 - Math.sin(a2) * l2 + l2 * heavy * 0.6;
+                      limb(
+                        tx2,
+                        ty2,
+                        lerp(tx2, ex, 0.5),
+                        lerp(ty2, ey, 0.5) - l2 * 0.15,
+                        ex,
+                        ey,
+                        bw * 0.3,
+                        bw * 0.15,
+                        bc,
+                        1,
+                      );
+                      const s3 = gm.L * 0.22 * p.leaf * u * ls;
+                      if (s3 > 2)
+                        leaf(
+                          ex,
+                          ey,
+                          s3,
+                          ld(gm.side, a2 * 0.7 + fold * 0.4),
+                          col2,
+                        );
+                    }
+                  }
+                  const ts = gm.L * 0.38 * p.leaf * u * ls;
+                  if (ts > 2.4) {
+                    leaf(tx2, ty2, ts, ld(gm.side, an * 0.7 + fold * 0.4), col);
+                    leaf(
+                      lerp(q[0], tx2, 0.55),
+                      lerp(q[1], ty2, 0.55),
+                      ts * 0.7,
+                      ld(-gm.side, 0.7 - p.droop * 0.5),
+                      col2,
+                    );
+                  }
+                }
+                branchLeaves(gm, p, col, ls);
+              });
+            }
+            if (tree) {
+              for (let i = 0; i < 5; i++) {
+                const s = i % 2 ? 1 : -1,
+                  e = 0.5 + i * 0.22 - p.droop * 0.8 + fold * 0.4,
+                  sz = (10 + p.stem * 14) * p.leaf * ls;
+                leaf(top[0], top[1] + i * 2, sz, ld(s, e), lc(i));
+              }
+            } else if (p.leaf > 0.1) {
+              const sz = (3 + p.stem * 6) * p.leaf * ls;
+              leaf(top[0], top[1] + 1, sz, ld(1, 1.3), col);
+              leaf(top[0], top[1] + 1, sz * 0.9, ld(-1, 1.3), col);
+              leaf(top[0], top[1] + 2, sz * 0.7, -1.57, col);
+            }
+            if (v.spine) {
+              ctx.strokeStyle = mixc("#d8cfa8", tint);
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              const L = 2.5 + v.spine * 3.5;
+              for (let t = 0.1; t < 0.96; t += 0.07) {
+                const q = stemPt(p, t, H),
+                  sd = (t * 37) % 1 > 0.5 ? 1 : -1;
+                ctx.moveTo(q[0], q[1]);
+                ctx.lineTo(q[0] + sd * L, q[1] - L * 0.7);
+              }
+              ctx.stroke();
+            }
+          }
+        }
+
+        /* ---------- animals: roam, graze, hunt ---------- */
+        let animals = [],
+          corpses = [];
+        const AN = {
+          mouse: {
+            name: "mouse",
+            sp: 34,
+            hr: 0.012,
+            life: 50,
+            adult: 6,
+            cap: 16,
+            min: 3,
+            rep: [40, 90],
+            litter: [2, 3],
+            bite: 0,
+            col: "#8b7a68",
+          },
+          rabbit: {
+            name: "rabbit",
+            sp: 62,
+            hr: 0.01,
+            life: 90,
+            adult: 10,
+            cap: 10,
+            min: 2,
+            rep: [60, 130],
+            litter: [1, 3],
+            bite: 12,
+            col: "#b79a78",
+          },
+          deer: {
+            name: "deer",
+            sp: 46,
+            hr: 0.008,
+            life: 240,
+            adult: 30,
+            cap: 3,
+            min: 1,
+            rep: [200, 360],
+            litter: [1, 1],
+            bite: 20,
+            col: "#b07a45",
+          },
+          fox: {
+            name: "fox",
+            sp: 78,
+            hr: 0.008,
+            life: 200,
+            adult: 25,
+            cap: 3,
+            min: 0,
+            rep: [200, 320],
+            litter: [1, 2],
+            bite: 0,
+            col: "#d9672a",
+          },
+        };
+        function spawnAnimal(x, k, young, say) {
+          x = clamp(x, 25, WW - 25);
+          if (inWater(x, 6)) return false;
+          const d = AN[k];
+          if (animals.filter((a) => a.k === k).length >= d.cap + (say ? 3 : 0))
+            return false;
+          animals.push({
+            k,
+            x,
+            y: ground(x),
+            face: Math.random() < 0.5 ? -1 : 1,
+            hun: rand(0.05, 0.35),
+            age: young ? 0 : rand(d.adult, d.life * 0.45),
+            lifeT: d.life * rand(0.8, 1.25),
+            st: "wander",
+            cd: rand(0, 40),
+            ph: rand(0, 6.28),
+            wt: rand(0, 3),
+            eatT: 0,
+            spr: 1,
+            sex: Math.random() < 0.5,
+            retarget: 0,
+            tg: null,
+            prey: null,
+            sc: 1,
+            dead: false,
+            fd: 1,
+          });
+          if (say) log(`A ${d.name} ${young ? "was born" : "appeared"}.`);
+          return true;
+        }
+        function initAnimals() {
+          for (const [k, n] of [
+            ["mouse", 4],
+            ["rabbit", 3],
+            ["deer", 1],
+          ])
+            for (let i = 0, t = 0; i < n && t < 60; t++)
+              if (spawnAnimal(rand(100, WW - 100), k, false, false)) i++;
+        }
+        function killAnimal(a, why) {
+          a.dead = true;
+          corpses.push({ x: a.x, k: a.k, t: 0, face: a.face, sc: a.sc });
+          if (a.k === "deer" || a.k === "fox") log(`A ${a.k} ${why}.`);
+        }
+        function updateAnimals(hours) {
+          const season = seasonIndex(),
+            cnt = { mouse: 0, rabbit: 0, deer: 0, fox: 0 };
+          for (const a of animals) if (!a.dead) cnt[a.k]++;
+          for (const a of animals) {
+            if (a.dead) continue;
+            const d = AN[a.k];
+            a.age += hours / 24;
+            a.hun +=
+              hours * d.hr * (a.st === "rest" ? 0.5 : 1) * (temp < 0 ? 1.3 : 1);
+            a.cd -= hours;
+            a.sc = 0.55 + 0.45 * Math.min(1, a.age / d.adult);
+            if (a.hun > 1.6) {
+              killAnimal(a, "starved");
+              cnt[a.k]--;
+              continue;
+            }
+            if (a.age > a.lifeT) {
+              killAnimal(a, "died of old age");
+              cnt[a.k]--;
+              continue;
+            }
+            if (
+              a.age > d.adult &&
+              a.hun < 0.45 &&
+              a.cd <= 0 &&
+              season < 3 &&
+              cnt[a.k] < d.cap &&
+              animals.some(
+                (b) =>
+                  b !== a &&
+                  !b.dead &&
+                  b.k === a.k &&
+                  b.age > d.adult &&
+                  Math.abs(b.x - a.x) < 260,
+              )
+            ) {
+              const n = Math.floor(rand(d.litter[0], d.litter[1] + 0.999));
+              let made = 0;
+              for (let i = 0; i < n && cnt[a.k] < d.cap; i++)
+                if (spawnAnimal(a.x + rand(-10, 10), a.k, true, false)) {
+                  cnt[a.k]++;
+                  made++;
+                }
+              if (made && a.k !== "mouse") log(`A ${d.name} gave birth.`);
+              a.cd = rand(d.rep[0], d.rep[1]);
+              a.hun += 0.25;
+            }
+          }
+          animals = animals.filter((a) => !a.dead);
+          /* wanderers arrive from the map edge so the ecosystem can recover */
+          const alive = plants.reduce(
+              (n, p) => n + (p.state !== "dead" ? 1 : 0),
+              0,
+            ),
+            prey = cnt.mouse + cnt.rabbit;
+          for (const k of ["mouse", "rabbit", "deer"])
+            if (
+              cnt[k] < AN[k].min &&
+              alive > 6 &&
+              Math.random() < hours * 0.03
+            ) {
+              if (
+                spawnAnimal(Math.random() < 0.5 ? 30 : WW - 30, k, false, false)
+              )
+                log(`A ${k} wanders in from the edge of the map.`);
+            }
+          if (
+            !cnt.fox &&
+            prey >= 5 &&
+            day > 8 &&
+            Math.random() < hours * 0.02 &&
+            spawnAnimal(Math.random() < 0.5 ? 30 : WW - 30, "fox", false, false)
+          )
+            log("A fox arrives, drawn by the rabbits and mice.");
+          for (let i = corpses.length - 1; i >= 0; i--) {
+            const c = corpses[i];
+            c.t += hours;
+            if (c.t > 70) {
+              fertility = Math.min(100, fertility + 0.8);
+              if (moisture > 30 && Math.random() < 0.4)
+                plantFungus(
+                  c.x + rand(-8, 8),
+                  Math.random() < 0.5 ? "mold" : pickFungus(),
+                  true,
+                );
+              corpses.splice(i, 1);
+            }
+          }
+        }
+        /* animals leave seedlings and anything about to flower, seed or fruit alone */
+        function grazable(p) {
+          return (
+            p.state !== "dead" &&
+            p.germ >= 1 &&
+            p.type !== "cactus" &&
+            p.age >= 35 &&
+            !p.buds.length &&
+            !p.fruits.length &&
+            p.seedsMade <= 0 &&
+            p.seedTimer <= 0 &&
+            !VP(p).tox &&
+            !(VP(p).tree && p.age > 30)
+          );
+        }
+        function findFood(a) {
+          let best = null,
+            bd = 420;
+          const k = a.k;
+          if (k !== "mouse")
+            for (const p of plants) {
+              if (!grazable(p)) continue;
+              if (k === "rabbit" && ph(p) > 95) continue;
+              const dd = Math.abs(p.x - a.x);
+              if (dd < bd) {
+                bd = dd;
+                best = { t: "plant", p };
+              }
+            }
+          for (const q of drops)
+            if (q.state !== "fall" && q.rot < 0.85 && !VP(q).tox) {
+              const dd = Math.abs(q.x - a.x) * 0.6;
+              if (dd < bd) {
+                bd = dd;
+                best = { t: "drop", q };
+              }
+            }
+          if (k === "mouse")
+            for (const s of seeds)
+              if (s.landed) {
+                const dd = Math.abs(s.x - a.x);
+                if (dd < bd) {
+                  bd = dd;
+                  best = { t: "seed", s };
+                }
+              }
+          if (k === "deer")
+            for (const p of plants) {
+              if (p.state === "dead") continue;
+              for (const f of p.fruits)
+                if (f.r > 0.8) {
+                  const dd = Math.abs(p.x - a.x) * 0.7;
+                  if (dd < bd) {
+                    bd = dd;
+                    best = { t: "fruit", p, f };
+                  }
+                }
+            }
+          return best;
+        }
+        function foodX(t) {
+          return t.t === "plant" || t.t === "fruit"
+            ? t.p.x
+            : t.t === "drop"
+              ? t.q.x
+              : t.s.x;
+        }
+        function foodValid(t) {
+          return t.t === "plant"
+            ? grazable(t.p) && plants.includes(t.p)
+            : t.t === "drop"
+              ? drops.includes(t.q) && !t.q.done
+              : t.t === "seed"
+                ? seeds.includes(t.s)
+                : t.p.fruits.includes(t.f);
+        }
+        function stepTo(a, tx, sp, dt) {
+          const dir = tx > a.x ? 1 : -1,
+            nx = clamp(a.x + dir * sp * dt, 22, WW - 22);
+          if (inWater(nx, 7)) {
+            a.st = "wander";
+            a.tg = null;
+            a.wt = rand(0.5, 1.5);
+            a.fd = -dir;
+            return false;
+          }
+          a.x = nx;
+          a.face = dir;
+          return true;
+        }
+        function eatFood(a, t) {
+          const d = AN[a.k];
+          if (t.t === "plant") {
+            const p = t.p;
+            p.health -= d.bite;
+            p.stem = Math.max(0, p.stem * 0.94);
+            a.hun = Math.max(0, a.hun - 0.12);
+            if (p.health <= 0) {
+              p.state = "dead";
+              p.deadT = 30;
+              log(`A ${d.name} ate a ${VP(p).name.toLowerCase()}.`);
+            }
+            return;
+          }
+          const spread = (ty, gn) => {
+            if (Math.random() < 0.5)
+              seeds.push({
+                gn: gn ? childOf(gn) : null,
+                x: clamp(a.x + rand(-160, 160), 30, WW - 30),
+                y: ground(a.x) - 3,
+                vx: 0,
+                vy: 0,
+                type: ty,
+                age: 0,
+                landed: true,
+                wait: rand(3, 9),
+                rot: 0,
+              });
+          };
+          if (t.t === "drop") {
+            t.q.done = true;
+            t.q.state = "eaten";
+            a.hun = Math.max(0, a.hun - 0.3);
+            spread(t.q.type, t.q.gn);
+          } else if (t.t === "seed") {
+            const i = seeds.indexOf(t.s);
+            if (i >= 0) seeds.splice(i, 1);
+            a.hun = Math.max(0, a.hun - 0.12);
+          } else {
+            const i = t.p.fruits.indexOf(t.f);
+            if (i >= 0) t.p.fruits.splice(i, 1);
+            a.hun = Math.max(0, a.hun - 0.35);
+            spread(t.p.type, t.p.gn);
+          }
+        }
+        function moveAnimals(rdt) {
+          const dt = rdt * Math.min(g_bs, 3.5);
+          if (dt <= 0) return;
+          const night = dlNow < 0.2;
+          for (const a of animals) {
+            if (a.dead) continue;
+            const d = AN[a.k],
+              sp = d.sp * a.sc;
+            a.ph += dt * (a.st === "flee" || a.st === "hunt" ? 14 : 8);
+            a.retarget -= dt;
+            a.y = ground(a.x);
+            const herb = a.k !== "fox";
+            /* small prey bolt from foxes */
+            if (a.k === "mouse" || a.k === "rabbit") {
+              let fx = null,
+                fd = 170;
+              for (const f of animals)
+                if (f.k === "fox" && !f.dead && Math.abs(f.x - a.x) < fd) {
+                  fd = Math.abs(f.x - a.x);
+                  fx = f;
+                }
+              if (fx) {
+                a.st = "flee";
+                a.fx = fx.x;
+              } else if (a.st === "flee") a.st = "wander";
+            }
+            if (a.st === "flee") {
+              if (
+                !stepTo(a, a.x + (a.x >= a.fx ? 1 : -1) * 100, sp * 1.8, dt)
+              ) {
+                a.st = "flee";
+                a.fx = a.x + a.fd * -50;
+              }
+              continue;
+            }
+            if (a.st === "rest") {
+              if (!night || a.hun > 0.6) a.st = "wander";
+              continue;
+            }
+            if (a.st === "eat") {
+              a.eatT -= dt;
+              if (a.eatT <= 0) {
+                if (a.meal) {
+                  a.meal = false;
+                  a.st = "wander";
+                  a.wt = rand(2, 5);
+                  continue;
+                }
+                if (a.tg && foodValid(a.tg)) {
+                  eatFood(a, a.tg);
+                  a.eatT = 1.1;
+                  if (a.hun < 0.12 || !foodValid(a.tg)) {
+                    a.st = "wander";
+                    a.tg = null;
+                    a.wt = rand(1, 3);
+                  }
+                } else {
+                  a.st = "wander";
+                  a.tg = null;
+                }
+              }
+              continue;
+            }
+            if (a.st === "hunt") {
+              const b = a.prey;
+              if (!b || b.dead || !animals.includes(b) || a.spr <= 0) {
+                a.st = "wander";
+                a.prey = null;
+                a.wt = rand(2, 5);
+                continue;
+              }
+              a.spr -= dt * 0.12;
+              if (Math.abs(b.x - a.x) < 13) {
+                b.dead = true;
+                a.hun = Math.max(0, a.hun - (b.k === "rabbit" ? 0.55 : 0.25));
+                a.st = "eat";
+                a.meal = true;
+                a.eatT = 2.5;
+                a.prey = null;
+                log(`A fox caught a ${b.k}.`);
+                continue;
+              }
+              stepTo(a, b.x, sp * 1.5, dt);
+              continue;
+            }
+            if (a.st === "seek") {
+              const t = a.tg;
+              if (!t || !foodValid(t)) {
+                a.st = "wander";
+                a.tg = null;
+                continue;
+              }
+              const tx = foodX(t);
+              if (Math.abs(tx - a.x) < 9) {
+                a.st = "eat";
+                a.eatT = 0.4;
+                continue;
+              }
+              stepTo(a, tx, sp, dt);
+              continue;
+            }
+            /* wandering */
+            a.spr = Math.min(1, a.spr + dt * 0.05);
+            if (a.k === "fox" && a.hun > 0.3 && a.retarget <= 0) {
+              a.retarget = 1.5;
+              let best = null,
+                bd = 520;
+              for (const b of animals)
+                if (!b.dead && (b.k === "mouse" || b.k === "rabbit")) {
+                  const dd = Math.abs(b.x - a.x) * (b.k === "rabbit" ? 0.7 : 1);
+                  if (dd < bd) {
+                    bd = dd;
+                    best = b;
+                  }
+                }
+              if (best && a.spr > 0.4) {
+                a.st = "hunt";
+                a.prey = best;
+                continue;
+              }
+            }
+            if (herb && a.hun > 0.35 && a.retarget <= 0) {
+              a.retarget = 1.2;
+              const t = findFood(a);
+              if (t) {
+                a.tg = t;
+                a.st = "seek";
+                continue;
+              }
+            }
+            if (herb && night && a.hun < 0.5) {
+              a.st = "rest";
+              continue;
+            }
+            a.wt -= dt;
+            if (a.wt <= 0) {
+              a.wx = clamp(
+                a.x + (Math.random() < 0.5 ? -1 : 1) * rand(60, 260),
+                30,
+                WW - 30,
+              );
+              a.wt = rand(3, 8);
+              a.walk = true;
+            }
+            if (a.walk) {
+              if (Math.abs(a.wx - a.x) < 6) {
+                a.walk = false;
+                a.wt = rand(1.5, 5);
+              } else if (!stepTo(a, a.wx, sp * 0.55, dt)) a.walk = false;
+            }
+          }
+          if (animals.some((a) => a.dead)) {
+            for (const a of animals)
+              if (a.dead && !a.rec) {
+                a.rec = 1;
+                if (a.k) {
+                  corpses.push({
+                    x: a.x,
+                    k: a.k,
+                    t: 30,
+                    face: a.face,
+                    sc: a.sc,
+                  });
+                }
+              }
+            animals = animals.filter((a) => !a.dead);
+          }
+        }
+        function drawAnimal(a) {
+          const k = a.k,
+            sc = a.sc,
+            moving =
+              a.st === "seek" ||
+              a.st === "flee" ||
+              a.st === "hunt" ||
+              (a.st === "wander" && a.walk),
+            eat = (a.st === "eat" && !a.meal) || a.st === "eat",
+            rest = a.st === "rest";
+          const ang = Math.atan2(ground(a.x + 8) - ground(a.x - 8), 16);
+          ctx.save();
+          ctx.translate(a.x, a.y);
+          ctx.rotate(ang * 0.8);
+          ctx.scale(a.face * sc, sc * (rest ? 0.82 : 1));
+          const sw = moving ? Math.sin(a.ph) : 0,
+            c = AN[k].col;
+          if (k === "mouse") {
+            ctx.strokeStyle = "#c99a98";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-5, -3);
+            ctx.quadraticCurveTo(-9, -1 + sw, -12, -3 + sw * 2);
+            ctx.stroke();
+            ctx.strokeStyle = "#5c4a3a";
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(-2, -2);
+            ctx.lineTo(-2 + sw * 2, 0);
+            ctx.moveTo(3, -2);
+            ctx.lineTo(3 - sw * 2, 0);
+            ctx.stroke();
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(0, -3.4, 5, 3, 0, 0, 6.3);
+            ctx.ellipse(5, -3.4 + (eat ? 1 : 0), 3, 2.3, 0, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#d8c9b8";
+            ctx.beginPath();
+            ctx.ellipse(0, -2, 3.8, 1.4, 0, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#d9a6a0";
+            ctx.beginPath();
+            ctx.arc(3.8, -6, 1.7, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#222";
+            ctx.beginPath();
+            ctx.arc(6, -4, 0.6, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#e49a9a";
+            ctx.beginPath();
+            ctx.arc(8, -3.3, 0.7, 0, 6.3);
+            ctx.fill();
+          } else if (k === "rabbit") {
+            const hop = moving ? Math.abs(Math.sin(a.ph * 0.5)) * 6 : 0;
+            ctx.translate(0, -hop);
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(0, -6, 8, 5.2, moving ? -0.2 : 0, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#a08463";
+            ctx.beginPath();
+            ctx.ellipse(-3, -5, 4.6, 4.4, 0, 0, 6.3);
+            ctx.fill();
+            const hy = eat ? -5 : -9.5;
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.arc(7.5, hy, 3.7, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#c8ad8a";
+            ctx.beginPath();
+            ctx.ellipse(
+              6.5,
+              hy - 5.6,
+              1.4,
+              4.6,
+              -0.18 + (eat ? 0.5 : 0),
+              0,
+              6.3,
+            );
+            ctx.ellipse(9, hy - 5.3, 1.3, 4.4, 0.1 + (eat ? 0.5 : 0), 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#e8a8a8";
+            ctx.beginPath();
+            ctx.ellipse(6.6, hy - 5.6, 0.6, 3.4, -0.18, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.arc(-8.6, -6.8, 2.3, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#222";
+            ctx.beginPath();
+            ctx.arc(9, hy - 0.8, 0.8, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#e49a9a";
+            ctx.beginPath();
+            ctx.arc(11, hy + 0.6, 0.8, 0, 6.3);
+            ctx.fill();
+            ctx.strokeStyle = "#8a7050";
+            ctx.lineWidth = 1.8;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(5, -3);
+            ctx.lineTo(7 + (moving ? 3 : 0), 0 + hop);
+            ctx.moveTo(-5, -3);
+            ctx.lineTo(-7 - (moving ? 3 : 0), hop * 0.2);
+            ctx.stroke();
+          } else if (k === "deer") {
+            ctx.strokeStyle = "#6b4524";
+            ctx.lineWidth = 2.2;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            for (const [lx, o] of [
+              [-10, 0],
+              [-6, Math.PI],
+              [8, Math.PI],
+              [12, 0],
+            ]) {
+              const s = moving ? Math.sin(a.ph + o) * 4 : 0;
+              ctx.moveTo(lx, -17);
+              ctx.lineTo(lx + s, -9);
+              ctx.lineTo(lx + s * 1.4, 0);
+            }
+            ctx.stroke();
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(0, -22, 15, 7, 0, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#e8cfa8";
+            ctx.beginPath();
+            ctx.ellipse(1, -18.5, 11, 2.6, 0, 0, 6.3);
+            ctx.fill();
+            if (a.age < 20) {
+              ctx.fillStyle = "rgba(255,245,225,.8)";
+              for (let i = 0; i < 7; i++) {
+                ctx.beginPath();
+                ctx.arc(-9 + i * 3, -25 + (i % 2) * 3, 0.9, 0, 6.3);
+                ctx.fill();
+              }
+            }
+            const hx = eat ? 22 : 19,
+              hy = eat ? -9 : -36;
+            ctx.strokeStyle = c;
+            ctx.lineWidth = 5.5;
+            ctx.beginPath();
+            ctx.moveTo(11, -25);
+            ctx.lineTo(hx - 3, hy + (eat ? -4 : 4));
+            ctx.stroke();
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(hx, hy, 5.2, 3, eat ? 0.9 : 0.35, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#8a5c30";
+            ctx.beginPath();
+            ctx.ellipse(hx - 3, hy - (eat ? -2 : 3), 1.4, 3, -0.5, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#222";
+            ctx.beginPath();
+            ctx.arc(hx + 2, hy - 0.8, 0.8, 0, 6.3);
+            ctx.arc(hx + 5.4, hy + 0.8, 0.9, 0, 6.3);
+            ctx.fill();
+            if (a.sex && a.age > d_ad()) {
+              ctx.strokeStyle = "#e0d2b0";
+              ctx.lineWidth = 1.3;
+              ctx.beginPath();
+              const ax = hx - 2,
+                ay = hy - 3;
+              ctx.moveTo(ax, ay);
+              ctx.lineTo(ax - 2, ay - 8);
+              ctx.moveTo(ax - 1, ay - 4);
+              ctx.lineTo(ax + 3, ay - 8);
+              ctx.moveTo(ax - 2, ay - 8);
+              ctx.lineTo(ax - 5, ay - 11);
+              ctx.moveTo(ax - 2, ay - 8);
+              ctx.lineTo(ax, ay - 12);
+              ctx.stroke();
+            }
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.ellipse(-15, -24, 2.4, 3.4, 0.4, 0, 6.3);
+            ctx.fill();
+          } else {
+            const cr = a.st === "hunt" ? 2.5 : 0;
+            ctx.translate(0, cr);
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(
+              -15,
+              -9.5,
+              9,
+              3.6,
+              -0.18 + (moving ? sw * 0.08 : 0),
+              0,
+              6.3,
+            );
+            ctx.fill();
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.ellipse(-21, -10, 2.8, 2.4, 0, 0, 6.3);
+            ctx.fill();
+            ctx.strokeStyle = "#2b1d14";
+            ctx.lineWidth = 1.9;
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            for (const [lx, o] of [
+              [-7, 0],
+              [-4, Math.PI],
+              [5, Math.PI],
+              [8, 0],
+            ]) {
+              const s = moving ? Math.sin(a.ph + o) * 4 : 0;
+              ctx.moveTo(lx, -7);
+              ctx.lineTo(lx + s, -3.5);
+              ctx.lineTo(lx + s * 1.3, 0);
+            }
+            ctx.stroke();
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.ellipse(0, -9, 10, 4.6, 0, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#f3e6d0";
+            ctx.beginPath();
+            ctx.ellipse(3, -6.6, 6, 1.8, 0, 0, 6.3);
+            ctx.fill();
+            const hy = eat ? -4 : -11.5 + cr * 0.2;
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.arc(11, hy, 3.8, 0, 6.3);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(13, hy - 1.6);
+            ctx.lineTo(19, hy + 1.2);
+            ctx.lineTo(13, hy + 2.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = "#2b1d14";
+            ctx.beginPath();
+            ctx.moveTo(9, hy - 2.6);
+            ctx.lineTo(10, hy - 7);
+            ctx.lineTo(12.5, hy - 3);
+            ctx.closePath();
+            ctx.moveTo(12, hy - 3);
+            ctx.lineTo(14, hy - 6.5);
+            ctx.lineTo(14.6, hy - 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(19, hy + 1.2, 0.9, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.arc(12.8, hy - 0.6, 0.9, 0, 6.3);
+            ctx.fill();
+            ctx.fillStyle = "#222";
+            ctx.beginPath();
+            ctx.arc(13, hy - 0.6, 0.5, 0, 6.3);
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+        function d_ad() {
+          return AN.deer.adult;
+        }
+        function drawCorpse(c) {
+          ctx.save();
+          ctx.translate(c.x, ground(c.x));
+          ctx.globalAlpha = clamp(1 - c.t / 70, 0, 1) * 0.85;
+          ctx.scale(c.face * c.sc, c.sc);
+          ctx.fillStyle = AN[c.k].col;
+          const w = { mouse: 5, rabbit: 8, deer: 15, fox: 11 }[c.k];
+          ctx.beginPath();
+          ctx.ellipse(0, -2, w, 2.6, 0, 0, 6.3);
+          ctx.fill();
+          ctx.strokeStyle = "#ede4d0";
+          ctx.lineWidth = 0.9;
+          ctx.beginPath();
+          for (let i = -2; i <= 2; i++) {
+            ctx.moveTo(i * w * 0.3, -3);
+            ctx.lineTo(i * w * 0.3 + 1, -0.6);
+          }
+          ctx.stroke();
           ctx.restore();
         }
 
@@ -5539,7 +7621,7 @@
           ctx.save();
           ctx.translate(s.x, s.y);
           ctx.rotate(s.landed ? -0.2 : s.rot);
-          const fl = V[s.type].float;
+          const fl = VP(s).float;
           if (!s.landed && fl > 0.4) {
             ctx.strokeStyle = "#ffffffaa";
             ctx.lineWidth = 0.8;
@@ -5552,9 +7634,12 @@
             ctx.lineTo(0, -8);
             ctx.stroke();
           }
-          ctx.fillStyle = "#d9b76b";
+          const gw = s.gn ? 1.7 + s.gn.sw * 3.3 : 3;
+          ctx.fillStyle = s.gn
+            ? mixc("#d9b76b", [[VP(s).flower, 0.3]])
+            : "#d9b76b";
           ctx.beginPath();
-          ctx.ellipse(0, 0, 3, 5, -0.25, 0, 6.3);
+          ctx.ellipse(0, 0, gw, gw * 1.6, -0.25, 0, 6.3);
           ctx.fill();
           ctx.restore();
         }
@@ -5579,6 +7664,8 @@
           for (const p of plants)
             if (p.x > xl - 100 && p.x < xr + 100) drawPlant(p);
           for (const f of fungi) if (f.x > xl && f.x < xr) drawFungus(f);
+          for (const c of corpses) if (c.x > xl && c.x < xr) drawCorpse(c);
+          for (const a of animals) if (a.x > xl && a.x < xr) drawAnimal(a);
           for (const d of drops)
             if (d.x > xl && d.x < xr) {
               ctx.save();
@@ -5603,8 +7690,9 @@
               ctx.translate(l.x, l.y);
               ctx.rotate(l.rot);
               ctx.globalAlpha = l.landed ? clamp(1 - l.t / 40, 0, 1) : 1;
-              ctx.fillStyle =
-                l.c === "oak"
+              ctx.fillStyle = l.k
+                ? l.k
+                : l.c === "oak"
                   ? "#b8742f"
                   : l.c === "apple"
                     ? "#c9a23a"
@@ -5849,6 +7937,11 @@
           $("fungiCount").textContent = fungi.length;
           $("seedCount").textContent = seeds.length;
           $("bugCount").textContent = `${bugs.length} / ${birds.length}`;
+          const ac = { mouse: 0, rabbit: 0, deer: 0, fox: 0 };
+          for (const a of animals) ac[a.k]++;
+          $("preyCount").textContent =
+            `${ac.mouse} / ${ac.rabbit} / ${ac.deer}`;
+          $("predCount").textContent = ac.fox;
           $("fruitCount").textContent = fr;
           $("dropCount").textContent = drops.length;
           $("harvCount").textContent = harvested;
@@ -5861,7 +7954,7 @@
                 break;
               }
           if (p) {
-            const v = V[p.type],
+            const v = VP(p),
               days = p.t / 24,
               fr2 = clamp((days - p.life * 0.55) / (p.life * 0.45), 0, 1),
               vig =
@@ -5894,7 +7987,7 @@
             if (v.fruit)
               bits.push(
                 p.fruits.length
-                  ? `Bearing ${p.fruits.length} ${v.fruit.kind === "berry" ? "berries" : v.fruit.kind + "s"} (${p.fruits.filter((f) => f.r > 0.8).length} ripe).`
+                  ? `Bearing ${p.fruits.length} ${v.fruit.nm ? v.fruit.nm + "s" : v.fruit.kind === "berry" ? "berries" : v.fruit.kind + "s"} (${p.fruits.filter((f) => f.r > 0.8).length} ripe).`
                   : "No fruit yet.",
               );
             else if (p.buds.length)
@@ -5903,6 +7996,7 @@
                   ? "Pollinated."
                   : "Waiting for pollinators.",
               );
+            if (p.gn) bits.push("Genome: " + describeGenome(p.gn) + ".");
             $("bioText").textContent = bits.join(" ");
           } else {
             $("stageName").textContent = "—";
@@ -5929,9 +8023,9 @@
             wy = camY + vy / zoom;
           /* pick ripe fruit */
           for (const p of plants) {
-            if (p.state === "dead" || !V[p.type].fruit) continue;
+            if (p.state === "dead" || !VP(p).fruit) continue;
             const H = ph(p),
-              F = V[p.type].fruit;
+              F = VP(p).fruit;
             for (const f of p.fruits) {
               if (f.r < 0.8) continue;
               const q = fruitLocalPos(p, f, H),
@@ -5940,7 +8034,7 @@
                 p.fruits.splice(p.fruits.indexOf(f), 1);
                 harvested++;
                 log(
-                  `Picked ${F.kind === "berry" ? "a ripe blueberry cluster" : "a ripe " + F.kind}.`,
+                  `Picked a ripe ${F.nm || (F.kind === "berry" ? "blueberry cluster" : F.kind)}.`,
                 );
                 return;
               }
@@ -5952,7 +8046,9 @@
               d.done = true;
               d.state = "picked";
               harvested++;
-              log(`Gathered a fallen ${d.kind}.`);
+              log(
+                `Gathered a fallen ${d.kind[0] === "g" && d.kind[1] === "f" ? "fruit" : d.kind}.`,
+              );
               return;
             }
           }
@@ -5960,7 +8056,7 @@
           for (const p of plants) {
             if (p.state === "dead" || p.germ < 1) continue;
             const H = ph(p),
-              v = V[p.type];
+              v = VP(p);
             if (v.vine) {
               const L = 10 + p.stem * 150,
                 a = p.x,
@@ -5991,7 +8087,8 @@
               log("Seeds need dry ground — try the pond banks.");
               return;
             }
-            if (FUNGI[t]) plantFungus(wx, t, false);
+            if (AN[t]) spawnAnimal(wx, t, false, true);
+            else if (FUNGI[t]) plantFungus(wx, t, false);
             else plant(wx, t);
           } else sel = null;
         }
@@ -6155,7 +8252,8 @@
             log("That view is mostly water — pan to dry ground.");
             return;
           }
-          if (FUNGI[t]) plantFungus(best, t, false);
+          if (AN[t]) spawnAnimal(best, t, false, true);
+          else if (FUNGI[t]) plantFungus(best, t, false);
           else plant(best, t);
         };
         $("seedType").onchange = (e) => (selected = e.target.value);
@@ -6207,8 +8305,10 @@
           drops = [];
           seeds = [];
           fall = [];
+          animals = [];
+          corpses = [];
           sel = null;
-          log("All plants and fungi cleared.");
+          log("All plants, fungi and animals cleared.");
         };
 
         function frame(now) {
@@ -6262,6 +8362,13 @@
             get birds() {
               return birds;
             },
+            get animals() {
+              return animals;
+            },
+            get corpses() {
+              return corpses;
+            },
+            spawnAnimal,
             update,
             animate,
             draw,
