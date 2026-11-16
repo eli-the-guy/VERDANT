@@ -623,6 +623,28 @@
           border-bottom: 1px solid #2a4a3a;
         }
       }
+      .jtw {
+        overflow: auto;
+        margin-top: 10px;
+      }
+      .jt {
+        border-collapse: collapse;
+        font-size: 12px;
+        width: 100%;
+      }
+      .jt th,
+      .jt td {
+        border: 1px solid #2a4a3a;
+        padding: 4px 7px;
+        text-align: right;
+      }
+      .jt th:first-child,
+      .jt td:first-child {
+        text-align: left;
+      }
+      .jt th {
+        background: #12281e;
+      }
     </style>
   </head>
   <body>
@@ -8965,8 +8987,19 @@
             (SPB[k] || "A plant species of the world.") +
               " Traits: " +
               st.join(", ") +
-              ".",
-            k + " plant species",
+              "." +
+              " <br><b>Challenge prices:</b> seed " +
+              money(seedPrice(k)) +
+              ", mature plant sells for about " +
+              money(Math.round(seedPrice(k) * 0.35 * (v.tree ? 1 : 1))) +
+              (v.fruit
+                ? ", each ripe fruit " +
+                  money(fruitValue(v)) +
+                  " (up to " +
+                  v.fruit.max +
+                  " fruits on the plant at once)."
+                : "."),
+            k + " plant species price sell",
           );
         }
         /* Fungi */
@@ -8995,9 +9028,11 @@
             "Fungi",
             FUNGI[k].name,
             (FB[k] || "") +
-              " Sells for $" +
+              " Costs $" +
               (FUNGI_PRICE[k] || 0) +
-              " in Challenge mode.",
+              " to place; sells for about $" +
+              Math.round((FUNGI_PRICE[k] || 0) * 0.5) +
+              " when dug up at full size.",
             k + " fungus",
           );
         /* Animals */
@@ -9022,9 +9057,9 @@
             (AB[k] || "") +
               " Lifespan about " +
               AN[k].life +
-              " days. Sells for $" +
+              " days. Costs $" +
               (AN_PRICE[k] || 0) +
-              " in Challenge mode.",
+              " to release in Challenge mode.",
             k + " animal",
           );
         J(
@@ -9158,7 +9193,265 @@
           "Plant biology shows the selected plant (or the latest): stage, age, health, hydration, stored energy and vigor. Ecosystem counts plants, fungi, seeds, pollinators, birds, fruit and animals. The World log lists events such as seeds taking root, mutations, pollination and deaths.",
           "panel ecosystem log biology stats",
         );
-        JR.sort((a, b) => (a.c === b.c ? 0 : 0));
+        /* ---- deeper coverage + prices ---- */
+        const $$ = (n) => "$" + Math.round(n).toLocaleString();
+        const pv = (k, age) => {
+          const v = V[k],
+            mat = Math.min(1.3, Math.max(0.25, age / (v.tree ? 60 : 30)));
+          return Math.round(seedPrice(k) * 0.35 * mat);
+        };
+        {
+          const rows = Object.keys(V)
+            .filter((k) => V[k] && V[k].name)
+            .map((k) => {
+              const v = V[k],
+                fv = v.fruit ? fruitValue(v) : 0;
+              return `<tr><td>${v.name}</td><td>${$$(seedPrice(k))}</td><td>${$$(pv(k, v.tree ? 15 : 7.5))}</td><td>${$$(pv(k, v.tree ? 60 : 30))}</td><td>${$$(pv(k, v.tree ? 78 : 39))}</td><td>${v.fruit ? $$(fv) + " (" + (v.fruit.nm || v.fruit.kind) + ")" : "—"}</td><td>${v.fruit ? "up to " + v.fruit.max + " → " + $$(fv * v.fruit.max) : "—"}</td></tr>`;
+            })
+            .join("");
+          J(
+            "Prices",
+            "Plant price table (Challenge mode)",
+            'Digging up a plant with the shovel sells it. Prices below are computed from the game\'s own formulas. <b>Seed</b> is what it costs to plant one. <b>Young</b> is the sale value of a plant at the minimum maturity (the first week or so of life). <b>Mature</b> is a fully grown plant (30 days old, trees 60). <b>Old</b> is the maximum, reached at 1.3× maturity. <b>Fruit</b> is the value of one freshly picked fruit and <b>Crop</b> is the value of a full set of ripe fruit on one plant. Fallen fruit you gather is worth only 60% of a picked fruit.<div class="jtw"><table class="jt"><tr><th>Plant</th><th>Seed</th><th>Young</th><th>Mature</th><th>Old</th><th>Fruit</th><th>Full crop</th></tr>' +
+              rows +
+              "</table></div>",
+            "price sell value money harvest table seed cost worth earn profit",
+          );
+        }
+        J(
+          "Prices",
+          "How plant sale value is calculated",
+          "Sale value of a dug-up plant = seed price × 0.35 × maturity. Maturity is the plant's age in days divided by 30 (60 for trees), limited to between 0.25 and 1.3. So a plant is worth at least a quarter of its full-grown price right away, 100% at maturity, and up to 130% if left to grow older. A chimera adds a flat $250 per generation of descent on top. Selling a plant is almost always worth less than the seed cost, because the real profit comes from fruit that regrows again and again, or from selling many plants raised cheaply from one seed that spread by itself.",
+          "sell plant shovel maturity age formula value",
+        );
+        J(
+          "Prices",
+          "How seed prices are set",
+          "Seed price reflects how useful a plant is: base $10, plus $2.50 per seed it makes, plus (if it fruits) $30 + $5 per fruit it can hold + $3 per unit of fruit size, plus $25 if it spreads by runners, $40 if it is a tree and $12 if it is perennial. The result is rounded to the nearest $5. Fungi have fixed prices and chimera seeds cost $10,000.",
+          "seed price cost buy formula shop",
+        );
+        J(
+          "Prices",
+          "How fruit sale value is calculated",
+          "Fresh fruit value = 5 + (fruit size × 1.8) + (seeds inside × 2). Fruit picked ripe straight from the plant is worth 100%. Ripe fruit you gather after it has fallen is worth 60%, and fruit that has rotted cannot be gathered at all. Picked fruit goes into your harvest bag and is paid out when you press Sell harvest. Chimera fruit is worth much more: its value is multiplied by 6, then by +15% per generation of descent, and by +50% again if the plant glows.",
+          "fruit value harvest bag sell ripe fallen rot chimera formula",
+        );
+        {
+          const fr = Object.keys(FUNGI)
+            .map(
+              (k) =>
+                `<tr><td>${FUNGI[k].name}</td><td>${$$(FUNGI_PRICE[k])}</td><td>${$$(FUNGI_PRICE[k] * 0.5)}</td></tr>`,
+            )
+            .join("");
+          J(
+            "Prices",
+            "Fungus prices",
+            'A fungus colony costs the listed price to place. Digging it up with the shovel sells it for half the price, scaled by how grown the colony is (size from 20% to 100%). Fungi are cheap and spread by themselves, so planting one colony in damp soil and harvesting its spread can be a steady, low-risk income.<div class="jtw"><table class="jt"><tr><th>Fungus</th><th>Cost</th><th>Sells for (full size)</th></tr>' +
+              fr +
+              "</table></div>",
+            "fungus price sell mushroom money",
+          );
+        }
+        {
+          const an = Object.keys(AN)
+            .map(
+              (k) =>
+                `<tr><td>${AN[k].name}</td><td>${$$(AN_PRICE[k])}</td></tr>`,
+            )
+            .join("");
+          J(
+            "Prices",
+            "Animal prices",
+            'Animals can be released into the world in Challenge mode for the price below. They cannot be sold back, but they earn their keep indirectly: they spread seeds, graze competing weeds and leave corpses that enrich the soil. Be careful: grazers will eat your young crops (although they ignore very young plants and plants about to fruit) and foxes will reduce grazers.<div class="jtw"><table class="jt"><tr><th>Animal</th><th>Cost to release</th></tr>' +
+              an +
+              "</table></div>",
+            "animal price cost release money",
+          );
+        }
+        J(
+          "Prices",
+          "Tool prices",
+          "Permanent tools are bought once: Watering can $250, Branch clippers $220, Scissors $150. Consumable tools are paid per use: Stake $30, Beehive $500, Bird seed $25, Fertiliser $60. Time skip: 1 hour $20, 5 hours $30, 1 day $100. Speed upgrade: $50 per +0.5×. Hand and shovel are free. A tool's price reflects how much it helps.",
+          "tool price cost buy unlock shop skip speed",
+        );
+        J(
+          "Prices",
+          "Money strategy for the $100,000 goal",
+          "Early on, the best return is a cheap fruiting annual or perennial bush: plant several, keep them watered, and sell fruit as it ripens. A beehive is expensive but guarantees pollination for a whole field, which is what turns flowers into fruit. Fruit trees (apple) cost more and take longest but give many fruits for years. Pruning with the clippers makes plants fruit faster. Do not spend on time skips until you have steady income, because skips cost $100 per day while the world already advances at your speed. Speed upgrades are usually the best long-term purchase because everything (growth, ripening, income) speeds up. The chimera seed is $10,000; its fruit sells for several times more and gets better every generation, so it pays off late.",
+          "strategy tips guide win money plan earn fast best",
+          "",
+        );
+        /* more biology */
+        J(
+          "Biology",
+          "Light, shade and leaf area",
+          "Each plant's light is the sunlight minus the shade of any taller neighbour, scaled by how leafy that neighbour is. Plants have a light requirement: sun lovers (sunflower) suffer in shade, shade lovers (fern) thrive there. Photosynthesis is the plant's income of energy; growth, flowers, fruit and seed all spend from it. Clipping leaves with scissors reduces the shading plant's leaf area so light reaches the plants below.",
+          "light shade leaf area sun requirement scissors",
+        );
+        J(
+          "Biology",
+          "Water balance in detail",
+          "Water enters through roots from soil moisture and nearby ponds, and leaves through use and evaporation. Deep taproots reach water further down; fibrous roots collect surface rain quickly. Cacti store water and need little. Water-hungry plants (ferns, tomatoes) wilt first in dry summers. If hydration stays low, health falls and the plant can die.",
+          "water balance hydration drought roots deep cactus",
+        );
+        J(
+          "Biology",
+          "Temperature and seasons for plants",
+          "Every plant has a season curve describing how fast it grows in each season; some peak in spring, others in summer or autumn. Cold slows growth, and very harsh weather damages tender plants. Annuals die after seeding. Deciduous plants drop their leaves in autumn and regrow in spring. Evergreens keep leaves all year.",
+          "temperature cold heat season growth curve frost",
+        );
+        J(
+          "Biology",
+          "The pollination window",
+          "A flower only opens to pollination during its plant's flowering season. A pollinator (bee, butterfly) must visit and linger for a moment to transfer pollen; the plant then counts as pollinated and starts to set fruit or seed. Wind-pollinated plants (grasses, corn) do not need insects. If there are no pollinators the flowers can pass without fruiting, which is why a beehive helps fruiting crops.",
+          "pollination flowering window bees wind pollinated",
+        );
+        J(
+          "Biology",
+          "Fruit lifecycle",
+          "A fruit forms after pollination, grows, becomes ripe (it can be picked only once it is ripe enough), stays ripe for a while, then falls and rots. While on the plant it is safe from rot. Animals and birds eat ripe fruit and fallen fruit. A rotted fruit releases seeds that can sprout. Max fruits on a plant, ripening time and hold time vary by species.",
+          "fruit ripe lifecycle rot fall seeds pick",
+        );
+        J(
+          "Biology",
+          "Runners and spreading plants",
+          "Some species send out runners that root and grow new plants nearby (strawberry, clover, bamboo). They spread steadily and can fill an area, but a cap stops one plant from taking over everything. Runner plants are good for cheap sales because new plants appear without buying seed.",
+          "runner stolon spread clone strawberry bamboo",
+        );
+        J(
+          "Biology",
+          "Toxic plants and fruit",
+          "Some plants (and chimeras with a toxic gene) are toxic. Animals will not eat toxic plants or their fruit, so these are safe from grazing but their fruit cannot feed wildlife.",
+          "toxic poison animals eat safe",
+        );
+        J(
+          "Biology",
+          "Wind and plant movement",
+          "Wind sways stems, bends branches and drops fruit and leaves in strong gusts. Flexible plants (grasses) bend far, rigid ones (trees) barely move. Wind lifts light seeds and spores, moves clouds and carries pollen for wind-pollinated plants.",
+          "wind sway gust flexible seed drift",
+        );
+        J(
+          "Biology",
+          "Growth rate and fertiliser",
+          "Fertiliser multiplies growth by about 1.6 for three days for plants in its radius. It is good for getting a fruit tree to maturity or finishing a crop before winter. Fertile soil also supports faster general growth.",
+          "fertiliser fertilizer growth boost 1.6",
+        );
+        J(
+          "Fungi",
+          "Fungi and plants together",
+          "Mycorrhizal networks help plants: fungi feed roots with water and nutrients and take sugars in return. Where fungus threads are near a plant's roots, the plant info panel says so. Decomposers also release nutrients from dead plants and animals, so a patch with fungi tends to be more fertile.",
+          "mycorrhiza network symbiosis roots nutrient fungus plant",
+        );
+        J(
+          "Fungi",
+          "Mold and slime mold",
+          "Mold is a fast film on rotting matter and spreads quickly in damp conditions. Slime mold is not truly a fungus; it moves slowly over damp ground, feeding on bacteria. Both thrive in damp soil and fade in dry spells.",
+          "mold slime damp decay",
+        );
+        J(
+          "Fungi",
+          "Glowing fungi",
+          "Glowcaps give off light at night; chimera fungi and plants with the glow gene do too. The glow does not help growth but makes them valuable.",
+          "glow bioluminescent night glowcap light",
+        );
+        J(
+          "Animals",
+          "Hunger, eating and reproduction",
+          "Animals have hunger that rises over time. When hungry they look for food they can eat: grazers pick plants that are mature enough and not about to fruit, foxes hunt mice and rabbits. After eating they rest. Adults breed in litters; each species has a breeding interval, litter size and lifespan. Populations have caps so they cannot explode.",
+          "hunger eat breed litter lifespan cap",
+        );
+        J(
+          "Animals",
+          "Why animals ignore some plants",
+          "To keep your garden alive, animals ignore plants that are too young, plants that are about to flower, seed or fruit, and toxic plants and fruit. Grown plants that are not fruiting can be eaten.",
+          "ignore young protect graze eat plants",
+        );
+        J(
+          "Animals",
+          "Predators and prey",
+          "Foxes chase mice and rabbits using stamina: they sprint, tire and rest. Prey flee when a fox is close. If prey is rare foxes starve, which lets prey recover. If the map is nearly empty, immigrants of a missing species arrive to keep the ecosystem going. Deer are too large to be hunted.",
+          "fox hunt chase stamina prey immigrate deer",
+        );
+        J(
+          "Animals",
+          "Corpses",
+          "Dead animals leave a corpse that slowly rots and boosts soil fertility.",
+          "corpse dead rot soil",
+        );
+        J(
+          "Tools",
+          "Stake in detail",
+          "The stake patches a plant's stem geometry: a staked plant grows straight along the stake, slightly taller, and a vine climbs the stake instead of sprawling. Each stake costs $30 and is placed beside a plant on the side you click.",
+          "stake support vine climb tall",
+        );
+        J(
+          "Tools",
+          "Clippers and pruning",
+          "Clippers remove a branch near the click. The plant gets a prune count which speeds up its next fruiting by about 18% per prune, and branches regrow later. Pruned plants branch less densely, which can also let more light through.",
+          "clippers prune branch fruit faster",
+        );
+        J(
+          "Tools",
+          "Beehive in detail",
+          "A hive releases bees up to 6 at once, 10 in total. Bees fly to flowers, pollinate and return home at night, in rain and in cold. After the 10th bee is released the hive is removed.",
+          "hive bee release 10 pollinate home",
+        );
+        J(
+          "Tools",
+          "Bird seed in detail",
+          "Scattering seed puts a feeder on the ground. Birds land and peck it, fertilising the soil and carrying seeds in their cargo to drop elsewhere, spreading plants across the map.",
+          "bird seed feeder peck fertilise carry",
+        );
+        J(
+          "Tools",
+          "Watering can in detail",
+          "Water soaks the ground in a radius, raising soil moisture, helping seeds germinate and hydrating plants. It is a one-time unlock.",
+          "water watering can moisture germination",
+        );
+        J(
+          "Chimera",
+          "All chimera genes",
+          "A chimera genome contains: leaf height and colour genes, leaf saturation and variation, stem colour, leaf size and density, flower colours (two), flower size and petal count, fruit colours (two) and size and count and maturity, seed weight, height, growth rate, lifespan, number of leaves, light need, water need, flexibility, woodiness, branch angle, spacing, sagging and twistiness, root density, length, angle and twist, spines, glow, toxicity, runner tendency, mutation rate, spottiness, and season of growth. Integer genes pick between types: leaf type (8), body form (6), flower type (7), fruit type (7), branching algorithm (3), root algorithm (4), fungus cap (4) and twig depth (2). Boolean genes: fungus or plant, flowers, fruit, annual, deciduous and wind pollinated.",
+          "chimera genes genome list traits",
+          "",
+        );
+        J(
+          "Chimera",
+          "Branching algorithms",
+          "Alternate branching puts branches on alternating sides of the stem, opposite branching puts pairs facing each other, and dense branching gives many close branches. Simple forms (stalk, rosette, tuft, vine, fungi) do not branch.",
+          "branching alternate opposite dense algorithm",
+        );
+        J(
+          "Chimera",
+          "Chimera fungi",
+          "If its fungus gene switches on, a chimera becomes a fungus: no leaves, flowers or fruit, a cap type instead, and growth that does not depend on light. If it switches off again it becomes a normal plant.",
+          "chimera fungus cap switch",
+        );
+        J(
+          "Chimera",
+          "Why chimeras are worth so much",
+          "A chimera seed costs $10,000. A grown chimera sells for the usual plant formula plus $250 per generation, and its fruit gets multiplied value. A line with many generations, glowing fruit and a large crop is the most profitable thing in the game.",
+          "chimera value generation price sell glow",
+        );
+        J(
+          "Saving",
+          "What a save contains",
+          "A slot stores the day and time, all plants (with genomes and fruit), fungi, seeds, fallen fruit, animals, hives, bird feeders, ponds, terrain and the world state, and in Challenge mode your money, total earned, tools owned and harvest bag.",
+          "save slot contents what stored",
+        );
+        J(
+          "Saving",
+          "Offline catch-up details",
+          "Catching up runs the same simulation as normal but in fast chunks, so you can watch the progress banner. The game time advanced equals real seconds away × the game speed, capped at two game years (96 days). If the slot is not the offline slot, nothing happens.",
+          "offline catch up cap two years speed",
+        );
+        J(
+          "Glossary",
+          "Glossary",
+          "<b>Annual</b>: lives one season and dies after seeding. <b>Perennial</b>: lives many years. <b>Deciduous</b>: drops leaves in autumn. <b>Mycelium</b>: underground fungal threads. <b>Spore</b>: fungal or fern reproductive cell. <b>Pollination</b>: transfer of pollen enabling fruit. <b>Genome</b>: the full set of genes of a chimera. <b>Mutation</b>: random change in a gene. <b>Generation</b>: how many descendants removed from the first chimera. <b>Vigor</b>: how youthful a plant is. <b>Fertility</b>: nutrients in soil. <b>Runner</b>: a stem that roots to make a new plant. <b>Senescent</b>: old and declining.",
+          "glossary terms definitions annual perennial mycelium spore",
+        );
+
         (function () {
           const ov = $("journal"),
             q = $("jq"),
@@ -10471,6 +10764,7 @@
           /debug/.test(location.search || "")
         )
           window.__v = {
+            JR,
             get plants() {
               return plants;
             },
