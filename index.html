@@ -1743,7 +1743,7 @@
             if (MUTNOTE[k]) {
               lastMutLog = day;
               log(
-                `Mutation! A chimera ${MUTNOTE[k](gn)} (generation ${gn.gen}).`,
+                `Mutation! A ${chimeraName(gn).toLowerCase()} ${MUTNOTE[k](gn)} (generation ${gn.gen}).`,
               );
             }
           } else
@@ -2200,6 +2200,57 @@
           if (g.run > 0.65 && !g.fun) a.push("sends runners");
           return a.join(" · ");
         }
+        function chimeraName(g) {
+          const fun = !!g.fun,
+            form = fun ? 0 : g.form,
+            simple =
+              fun || form === 0 || form === 2 || form === 3 || form === 5;
+          let gen;
+          if (g.glow > 0.75) gen = "lumi";
+          else if (g.tox > 0.7) gen = "toxi";
+          else if (!fun && g.spine > 0.55) gen = "spini";
+          else if (!fun && g.run > 0.65) gen = "repti";
+          else if (fun) gen = ["pilo", "fomi", "rami", "bovi"][g.cap];
+          else if (g.fr)
+            gen = [
+              "fruti",
+              "uvi",
+              "siliqui",
+              "tribuli",
+              "cerasi",
+              "samari",
+              "cucurbi",
+            ][g.frt];
+          else
+            gen = ["caul", "frutic", "rosul", "gramin", "arbor", "vini"][form];
+          let ep;
+          if (fun) ep = ["pileatus", "fomes", "ramarius", "globosus"][g.cap];
+          else if (!simple) ep = ["alternas", "oppositas", "densas"][g.balg];
+          else if (g.fl)
+            ep = [
+              "bellis",
+              "calix",
+              "campana",
+              "spicata",
+              "globosa",
+              "stellata",
+              "tubula",
+            ][g.ft];
+          else
+            ep = [
+              "ovalis",
+              "lata",
+              "loba",
+              "ensis",
+              "acicula",
+              "rotunda",
+              "cordata",
+              "serrata",
+            ][g.lt];
+          return (
+            (fun ? "Chimera fungus" : "Chimera") + " (" + gen + " " + ep + ")"
+          );
+        }
         function deriveV(g) {
           const fun = !!g.fun,
             form = fun ? 0 : g.form,
@@ -2230,7 +2281,7 @@
             { D: 0.7, L: 0.9, a: 0, tw: 1 },
           ][g.ra];
           const v = {
-            name: fun ? "Chimera fungus" : "Chimera",
+            name: chimeraName(g),
             gn: g,
             stem: hslHex(g.sh * 360, fun ? 0.15 : 0.35, fun ? 0.85 : 0.4),
             leaf: hslHex(
