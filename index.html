@@ -490,6 +490,139 @@
         background: #2d5a3f;
         outline: 1px solid #7ee0a0;
       }
+      .jbtn {
+        background: #1d3a2b;
+        border: 1px solid #3f6b52;
+        color: #dff5e6;
+        border-radius: 8px;
+        padding: 5px 11px;
+        cursor: pointer;
+        margin-right: 12px;
+        font: inherit;
+        font-size: 12px;
+      }
+      #journal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: #000a;
+        z-index: 50;
+        align-items: center;
+        justify-content: center;
+        padding: 14px;
+      }
+      #journal.open {
+        display: flex;
+      }
+      .jwin {
+        background: #0b1713;
+        border: 1px solid #2f5a44;
+        border-radius: 12px;
+        width: min(920px, 100%);
+        height: min(640px, 100%);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .jtop {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid #2a4a3a;
+      }
+      .jtop h2 {
+        margin: 0;
+        font-size: 15px;
+        white-space: nowrap;
+      }
+      .jtop input {
+        flex: 1;
+        min-width: 0;
+        padding: 7px 10px;
+        border-radius: 8px;
+        border: 1px solid #3a5f4c;
+        background: #07110d;
+        color: #e8f5ec;
+        font: inherit;
+      }
+      #jcats {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        border-bottom: 1px solid #2a4a3a;
+      }
+      #jcats button {
+        padding: 3px 9px;
+        font-size: 11px;
+        border-radius: 99px;
+      }
+      #jcats button.on,
+      #jlist button.on {
+        background: #24503a;
+        border-color: #6fd49a;
+      }
+      .jmain {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      #jlist {
+        width: 250px;
+        overflow: auto;
+        border-right: 1px solid #2a4a3a;
+        padding: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      #jlist button {
+        text-align: left;
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+      #jlist small {
+        opacity: 0.6;
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      #jbody {
+        flex: 1;
+        overflow: auto;
+        padding: 16px 20px;
+        line-height: 1.6;
+        font-size: 14px;
+      }
+      #jbody h3 {
+        margin: 2px 0 10px;
+        font-size: 20px;
+        color: #9be8b8;
+      }
+      .jc {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        opacity: 0.6;
+      }
+      .jnone {
+        padding: 12px;
+        opacity: 0.6;
+      }
+      @media (max-width: 640px) {
+        .jmain {
+          flex-direction: column;
+        }
+        #jlist {
+          width: auto;
+          max-height: 38%;
+          border-right: 0;
+          border-bottom: 1px solid #2a4a3a;
+        }
+      }
     </style>
   </head>
   <body>
@@ -499,7 +632,10 @@
         <div class="brand">🌱 <span>VERDANT</span></div>
         <div class="sub">A SMALL, LIVING WORLD</div>
       </div>
-      <div class="sub" id="dayLabel">DAY 1 · 06:00</div>
+      <div style="display: flex; align-items: center">
+        <button class="jbtn" id="jbtn" title="Journal (J)">📖 Journal</button>
+        <div class="sub" id="dayLabel">DAY 1 · 06:00</div>
+      </div>
     </header>
     <main>
       <section class="stage">
@@ -842,6 +978,23 @@
         </div>
       </aside>
     </main>
+    <div id="journal">
+      <div class="jwin">
+        <div class="jtop">
+          <h2>📖 Journal</h2>
+          <input
+            id="jq"
+            placeholder="Search the journal… (e.g. fungus, pollination, stake)"
+            autocomplete="off"
+          /><button id="jclose">✕</button>
+        </div>
+        <div id="jcats"></div>
+        <div class="jmain">
+          <div id="jlist"></div>
+          <div id="jbody"></div>
+        </div>
+      </div>
+    </div>
     <script>
       window.addEventListener("error", (e) => {
         const box = document.getElementById("fatal");
@@ -8615,6 +8768,479 @@
             if (curSlot) saveSlot(curSlot, true);
           });
         }
+        /* ---------- Journal: searchable encyclopedia of everything in the world ---------- */
+        const JR = [];
+        const J = (c, t, b, k) => JR.push({ c, t, b, k: k || "" });
+        /* World & time */
+        J(
+          "World",
+          "Time and the calendar",
+          "One real second at 1× equals one in-game hour, so a day is 24 seconds. A year is 48 days split into four seasons of 12 days each: Spring, Summer, Autumn, Winter. The simulation speed slider scales this (0 pauses). The header shows the day number and clock. In Challenge mode speed starts locked at 0.1× and only goes up when you buy speed upgrades.",
+          "day year hour clock speed slow fast",
+        );
+        J(
+          "World",
+          "Seasons",
+          "Spring brings rain, germination and blossom. Summer is warm and bright with the longest daylight, but ponds shrink and soil dries. Autumn cools the air, ripens fruit and makes deciduous plants shed leaves. Winter is cold and short on light; many plants go dormant, snow can settle, and annuals die back. Each plant has a seasonal growth curve, so a species that peaks in summer grows slowly in winter. The Season tracker panel shows the day of the season and the next season.",
+          "spring summer autumn fall winter tracker",
+        );
+        J(
+          "World",
+          "Weather",
+          'Weather is generated from the season. Rain refills ponds and soaks soil; clear days raise sunlight and evaporation; wind moves clouds, seeds and plants; storms and gusts bend stems. The World conditions panel shows temperature, humidity, soil moisture, sunlight, wind, soil fertility, pond level and snow cover. The "Gust of wind" button forces a strong gust that blows seeds and spores further.',
+          "rain wind storm snow temperature humidity sunlight gust cloud",
+        );
+        J(
+          "World",
+          "Day and night",
+          "Daylight length changes through the year (long in summer, short in winter). The sun and moon cross the sky and the moon changes phase. Plants only photosynthesise in light. Flowers no longer close at night. Bees and butterflies go home at night, in rain and in the cold. Glowing fungi and bioluminescent chimeras are visible after dark.",
+          "night moon sun phase dark",
+        );
+        J(
+          "World",
+          "The map, zoom and pan",
+          "The world is 3000 px wide, much bigger than the view. Drag the scene (or use arrow keys / WASD) to pan. Scroll wheel, pinch, the + and − buttons or the + / − keys zoom; 0 resets zoom. The minimap in the corner shows where you are. You can zoom in far enough to see roots, mycelium and individual leaves.",
+          "camera zoom pan drag minimap controls keys wasd",
+        );
+        J(
+          "World",
+          "Terrain, hills and soil",
+          "The ground is a rolling terrain, not a flat line. Plants sit at the local ground height. Beneath the surface soil has layers, stones, and a fertility value that rises as dead plants and animals decompose and falls as plants use nutrients. Ponds sit in the low points.",
+          "terrain ground hills soil fertility layers",
+        );
+        J(
+          "World",
+          "Ponds and water",
+          'Ponds fill with rain and shrink in dry spells. Plants near a pond get extra water through their roots ("Roots reach pond moisture"). Seeds cannot be planted in water and animals will not stand in it. Wet soil near ponds is where fungi and moisture-loving plants do best.',
+          "pond water lake moisture drought",
+        );
+        J(
+          "World",
+          "Soil moisture and fertility",
+          "Soil moisture rises with rain and ponds and falls with sun, wind and plant use. Plants draw water through roots; each species has a water need. Fertility is nutrients: decomposers (fungi) and fallen matter raise it, growth lowers it. Fertiliser and watering tools boost these locally.",
+          "moisture fertility nutrients wet dry",
+        );
+        /* Plant biology */
+        J(
+          "Biology",
+          "Germination and seeds",
+          "A seed lies dormant until the soil is wet and warm enough, then germinates. Heavy seeds drop near the parent; light seeds drift on the wind. Wet soil (and the Watering can) improves germination odds. Seeds can be eaten by animals or carried by birds. Seeds that do not find suitable ground rot.",
+          "seed germinate sprout dormant",
+        );
+        J(
+          "Biology",
+          "Growth stages",
+          "Stages shown in the Plant biology panel: Germinating, Seedling, Growing, Mature (can flower), Flowering, Fruiting/Seeding, Senescent (old), then Dying and Dead. Growth speed depends on the species rate, light, water, temperature and season.",
+          "stage seedling mature senescent dying",
+        );
+        J(
+          "Biology",
+          "Photosynthesis and energy",
+          "Leaves turn light into stored energy; the energy bar shows the reserve. Plants spend it on growth, flowers, fruit and seeds. Shade from taller neighbours cuts the light a plant receives, so crowded plants grow slower. Fungi do not photosynthesise; they feed on decaying matter and plant partners.",
+          "energy light shade photosynthesis leaves",
+        );
+        J(
+          "Biology",
+          "Water, health and wilting",
+          "Hydration drops as the plant uses water and rises when roots reach moist soil. A very dry plant wilts and its health falls. Health also falls with cold, heat, being eaten or old age. At zero health the plant dies and becomes decomposing matter.",
+          "hydration health wilt dry thirst",
+        );
+        J(
+          "Biology",
+          "Ageing and vigor",
+          "Plants age. Early life is vigorous; after roughly 55% of its lifespan the plant becomes senescent and its Vigor bar declines. Annuals finish their life cycle after seeding; perennials and trees live for many seasons. Old trees get thick trunks and heavy branches.",
+          "age vigor lifespan annual perennial old",
+        );
+        J(
+          "Biology",
+          "Roots",
+          'Roots are drawn below ground. Taproots go deep, fibrous roots spread wide and shallow, fans spread sideways and tubers swell. Roots are how plants reach moisture, including pond water. Mycelial networks of fungi connect to roots and feed them ("A fungal network is feeding its roots").',
+          "roots taproot fibrous tuber mycelium",
+        );
+        J(
+          "Biology",
+          "Branches and leaves",
+          "Woody plants grow branches; the number, angle and spacing depend on species. Leaves come in several shapes (oval, broad, lobed, blade, needle, round, heart, serrated). Deciduous plants drop leaves in autumn. Branches sway with the wind based on flexibility.",
+          "branch leaf deciduous evergreen twig",
+        );
+        J(
+          "Biology",
+          "Flowers and pollination",
+          "Mature plants flower during their season window. Many flowers need pollination by bees or butterflies (or wind for wind-pollinated species) before they can set fruit or seed. Pollinators visit flowers, linger, and transfer pollen. A Beehive tool increases pollinators on the map. Flowers stay open at night.",
+          "flower bloom pollen pollinator bee butterfly wind",
+        );
+        J(
+          "Biology",
+          "Fruit",
+          "Fruiting plants grow fruit after pollination. Fruit ripens over time, hangs ripe for a while, then falls and rots, releasing seeds. Ripe fruit can be clicked to pick (and sold in Challenge). Animals and birds eat fruit. Pruning with clippers makes a plant fruit faster.",
+          "fruit ripe pick harvest rot apple",
+        );
+        J(
+          "Biology",
+          "Dispersal",
+          "Seeds spread by dropping, wind, runners (stolons), animal fur/dung and birds. Birds that eat fruit or bird seed carry seeds in their cargo and drop them elsewhere. Light seeds and strong wind travel furthest.",
+          "dispersal runner spread bird carry wind",
+        );
+        J(
+          "Biology",
+          "Competition and shade",
+          "Plants compete for light and water. A taller plant shades smaller ones nearby. Scissors let you trim leaves of the shading plant to let light reach shaded neighbours.",
+          "competition shade crowd",
+        );
+        J(
+          "Biology",
+          "Decomposition",
+          "Dead plants, fruit and animals rot, feeding fungi and raising soil fertility. Fungi spread where soil is damp and matter is decaying.",
+          "decay rot corpse compost",
+        );
+        /* Species (generated w/ stats) */
+        const SPB = {
+          wildflower:
+            "A hardy generalist that grows almost anywhere and spreads easily; a good first plant.",
+          sunflower:
+            "Tall, sun-loving, with a big seed head that follows the light.",
+          fern: "A shade lover that reproduces by spores instead of seeds and likes damp ground.",
+          cactus:
+            "Stores water, needs very little rain and tolerates heat; slow growing.",
+          oak: "A long-lived tree. Slow at first, then large. Produces acorn-like seeds and shades everything below.",
+          clover:
+            "A low ground cover that spreads quickly and enriches the soil.",
+          lavender: "Aromatic perennial favoured by bees; copes with dry soil.",
+          tomato:
+            "A fruiting annual: needs warmth, water and pollination, and gives valuable fruit.",
+          grass:
+            "Fast meadow grass; a main food for grazing animals. Wind pollinated.",
+          dandelion:
+            "Weedy flower with parachute seeds that drift far on the wind.",
+          tulip: "Spring flower with a bold cup bloom.",
+          poppy: "Bright flowers and many tiny seeds.",
+          daisy: "Cheerful white flowers; tolerant and bee friendly.",
+          bamboo: "Very fast tall grass that spreads by runners.",
+          apple:
+            "A fruit tree. Slow to mature but gives lots of fruit that animals and birds love.",
+          blueberry: "A bush that bears berries in summer.",
+          strawberry:
+            "A low plant that spreads by runners and gives sweet fruit.",
+          pumpkin: "A sprawling vine with huge heavy fruit.",
+          corn: "A tall annual crop grass with cobs.",
+        };
+        for (const k in V) {
+          const v = V[k];
+          if (!v || !v.name) continue;
+          const st = [];
+          if (v.h != null)
+            st.push(
+              "height " + (v.h > 1.1 ? "tall" : v.h > 0.5 ? "medium" : "short"),
+            );
+          if (v.needLight != null)
+            st.push(
+              "light need " +
+                (v.needLight > 0.5
+                  ? "high"
+                  : v.needLight > 0.3
+                    ? "moderate"
+                    : "low"),
+            );
+          if (v.needWater != null)
+            st.push(
+              "water need " +
+                (v.needWater > 0.5
+                  ? "high"
+                  : v.needWater > 0.3
+                    ? "moderate"
+                    : "low"),
+            );
+          if (v.annual) st.push("annual");
+          else if (v.life)
+            st.push("lives about " + Math.round(v.life) + " days");
+          if (v.tree) st.push("tree");
+          if (v.vine) st.push("vine");
+          if (v.fruit) st.push("bears " + (v.fruit.nm || v.fruit.kind));
+          if (v.seeds) st.push("about " + v.seeds + " seeds per cycle");
+          if (v.wp) st.push("wind pollinated");
+          if (v.tox) st.push("toxic");
+          J(
+            "Species",
+            v.name,
+            (SPB[k] || "A plant species of the world.") +
+              " Traits: " +
+              st.join(", ") +
+              ".",
+            k + " plant species",
+          );
+        }
+        /* Fungi */
+        J(
+          "Fungi",
+          "What are fungi?",
+          "Fungi are not plants. They have no leaves or chlorophyll and cannot make their own food. They break down dead plants, fruit and animals (decomposers) and release nutrients into the soil. Underground they form threads called mycelium that link up and can feed plant roots in exchange for sugars. What you see above ground is the fruiting body that releases spores. Fungi need damp soil, and they spread by spores carried by wind and rain.",
+          "fungus mycelium spores decomposer mushroom network",
+        );
+        const FB = {
+          toadstool:
+            "The classic red-capped mushroom. Appears in small groups in damp soil.",
+          brown: "Clusters of plain brown mushrooms, common decomposers.",
+          puffball: "A round ball that puffs a cloud of spores when disturbed.",
+          mold: "A fuzzy low film that grows fast on rotting matter and spreads quickly in damp conditions.",
+          slime:
+            "A creeping yellow slime mold that is neither plant nor fungus; it wanders over damp ground feeding on microbes.",
+          bracket:
+            "Shelf fungus that grows out of the sides of trees and dead wood.",
+          coral: "Branching coral-like fungus found in damp, shaded spots.",
+          glowcap:
+            "A bioluminescent mushroom that glows softly at night. Rare and valuable.",
+        };
+        for (const k in FUNGI)
+          J(
+            "Fungi",
+            FUNGI[k].name,
+            (FB[k] || "") +
+              " Sells for $" +
+              (FUNGI_PRICE[k] || 0) +
+              " in Challenge mode.",
+            k + " fungus",
+          );
+        /* Animals */
+        J(
+          "Animals",
+          "Overview of animals",
+          "Animals roam the map. Mice and rabbits graze plants and seeds; deer graze larger plants; foxes hunt mice and rabbits. They get hungry over time, search for food, eat, rest and reproduce. They ignore very young plants, plants about to flower, seed or fruit, and toxic plants and toxic fruit. Dead animals leave corpses that decompose and feed the soil. When a species gets rare, immigrants arrive so the world is not left empty.",
+          "animal food chain graze predator prey immigrate",
+        );
+        const AB = {
+          mouse:
+            "Tiny, quick breeder, eats seeds and small plants. Prey for foxes.",
+          rabbit:
+            "Fast grazer that nibbles plants down. Breeds in small litters. Prey for foxes.",
+          deer: "Large slow breeder that eats big plants; too big for foxes to hunt.",
+          fox: "A predator that chases mice and rabbits using stamina. Without prey it starves.",
+        };
+        for (const k in AN)
+          J(
+            "Animals",
+            AN[k].name[0].toUpperCase() + AN[k].name.slice(1),
+            (AB[k] || "") +
+              " Lifespan about " +
+              AN[k].life +
+              " days. Sells for $" +
+              (AN_PRICE[k] || 0) +
+              " in Challenge mode.",
+            k + " animal",
+          );
+        J(
+          "Animals",
+          "Bees and butterflies",
+          "Pollinators visit flowers, linger, and move pollen between plants so they can set fruit. They go home at night, in rain and in cold. Beehives release bees (see Tools).",
+          "bee butterfly pollinator insect",
+        );
+        J(
+          "Animals",
+          "Birds",
+          "Birds fly in, perch, eat fruit and bird seed, fertilise the soil and carry seeds in their cargo to drop elsewhere. A Bird seed scatter attracts them to peck at the ground.",
+          "bird seed carry perch",
+        );
+        /* Chimera */
+        J(
+          "Chimera",
+          "The Chimera plant",
+          "Chimera is a special plant with a random genome (genes) that mutates each generation. Its genes include leaf type, whether it has flowers and the flower type, whether it has fruit and its type, every colour, plant vs fungus, seed weight, body shape, branching algorithm, root algorithm, lifespan, light and water needs, glow, toxicity, thorns, runners and more. Select the Special group to plant one. Chimera seeds cost $10,000 in Challenge mode.",
+          "chimera special genome gene evolve mutation random",
+        );
+        J(
+          "Chimera",
+          "Chimera names",
+          'Each chimera gets a species name from its genes, such as "Chimera (lumi alternas)": a bioluminescent plant with alternate branching. The first word comes from its most striking trait (lumi = glowing, toxi = toxic, spini = thorny, repti = runners, otherwise its fruit or body shape); the second from its branching, flower or leaf shape. Fungi use cap shape. The name changes if a mutation changes those genes.',
+          "name species lumi toxi spini repti alternas",
+        );
+        J(
+          "Chimera",
+          "Evolution and mutation",
+          "When a chimera sets seed, each child copies the parent genome with small random changes. A gene can drift a little, a trait like body plan can switch completely, and rarely three genes are rerolled. Each genome has its own mutation rate which also drifts. Mutations are noted in the world log once per day. The generation counter shows how many descendants deep a line is. The chimera population is capped at 45 so it cannot take over.",
+          "generation mutate inherit drift natural selection",
+        );
+        J(
+          "Chimera",
+          "Chimera body plans",
+          "Body plans: upright stalk, branching bush, rosette, grass-like tuft, tree, creeping vine. A chimera may instead be a fungus with a cap shape (mushroom, shelf, coral, puffball). Fungal chimeras do not use light. Root types: taproot, fibrous, shallow fan, tuber. Flower types: daisy, cup, bell, spike, pompom, star, trumpet. Fruit types: round, grape bunch, pod, burr, cherry, winged seed, gourd.",
+          "form fungus flower fruit root type",
+        );
+        /* Tools */
+        J(
+          "Tools",
+          "Using tools",
+          "The toolbar at the bottom of the scene lists tools; click one or press its number key (1–9). In Challenge mode most tools must be bought: some are one-time unlocks and others cost money each use. Click the world to use the selected tool; a ring shows its radius.",
+          "toolbar hotkey select number",
+        );
+        const TB = {
+          hand: "Inspect a plant, pick ripe fruit and plant the chosen seed with a click.",
+          shovel:
+            "Digs up a plant, fungus or small thing. In Challenge it sells what you dig up.",
+          water:
+            "Wets soil in a radius, hydrating plants and helping seeds sprout.",
+          clip: "Clips off a branch. Pruned plants fruit sooner and grow the branch back later. Does not harm the plant.",
+          scissors:
+            "Trims leaves in an area so more light reaches smaller neighbours.",
+          stake:
+            "Drive a stake next to a plant; the stem grows straight along it and vines climb it.",
+          hive: "Places a beehive that releases bees (6 at a time, 10 in total) to pollinate, then disappears.",
+          seed: "Scatters bird seed to attract birds, which fertilise soil and carry seeds.",
+          fert: "Fertiliser boosts plant growth nearby for three in-game days.",
+        };
+        for (const k of TORDER) {
+          const T = TOOLS[k];
+          J(
+            "Tools",
+            T.n,
+            (TB[k] || T.tip) +
+              " " +
+              (T.price
+                ? "Costs $" +
+                  T.price +
+                  (T.perm ? " to unlock once." : " per use.")
+                : "Always available."),
+            k + " tool",
+          );
+        }
+        /* Challenge */
+        J(
+          "Challenge",
+          "Challenge mode",
+          "Resets the world, gives you $400 and locks the speed at 0.1×. Seeds and tools have prices. Pick fruit, sell your harvest bag, and dig up plants with the shovel to sell them. The goal is $100,000. Price of a plant is based on how well it reproduces and on its fruit and seed count. Exit any time with the same button.",
+          "challenge money goal price start",
+        );
+        J(
+          "Challenge",
+          "Selling",
+          "Picked fruit goes into your harvest bag. Press Sell harvest to cash it in. Digging up a plant with the shovel sells it by value; larger and fruiting plants are worth more. Fungi and animals also have values.",
+          "sell harvest bag money fruit",
+        );
+        J(
+          "Challenge",
+          "Time skip",
+          "Pay to jump ahead in time: 1 hour costs $20, 5 hours $30, one day $100. The skip plays quickly instead of cutting, so you see the growth. Buying 5 hours is cheaper per hour than 1 hour.",
+          "skip time cost hour day",
+        );
+        J(
+          "Challenge",
+          "Speed upgrades",
+          "Speed starts at 0.1×. Each upgrade costs $50 and raises it by 0.5×; the first goes to 0.5×, then 1×, 1.5×, 2× and so on.",
+          "speed multiplier unlock upgrade",
+        );
+        /* Saving */
+        J(
+          "Saving",
+          "Save slots",
+          "There are 3 sandbox and 3 challenge slots, kept in your browser local storage on this device. Save and Load buttons write or read a slot; the X deletes it. The current slot autosaves every 15 seconds and when you leave or hide the page.",
+          "save load slot local storage autosave delete",
+        );
+        J(
+          "Saving",
+          "Offline slot",
+          "Browsers cannot run a page that is closed. Pressing Offline on a slot marks it as the one that keeps going: when you reopen the site or return to the tab, it loads and fast-forwards by the real time you were away (up to two game years), with a progress banner. It must also be the current slot to keep autosaving.",
+          "offline away catch up background closed tab",
+        );
+        /* Controls */
+        J(
+          "Controls",
+          "Controls summary",
+          "Drag: pan. Scroll or pinch: zoom. Arrow keys or WASD: pan. + / −: zoom. 0: reset zoom. 1–9: select tool. Click ground with Hand: plant selected seed. Click a plant: inspect. Click fruit: pick it. J: toggle this journal. Esc: close journal.",
+          "keys keyboard mouse shortcuts",
+        );
+        J(
+          "Controls",
+          "Simulation controls",
+          "Speed slider sets the multiplier. Pause freezes time; Step +1 hour advances one hour; Fast time-lapse jumps to a high speed; New world regenerates the terrain and life; Gust of wind blows. Plant something lets you choose what to place; Clear all life empties the world.",
+          "pause step time-lapse new world clear",
+        );
+        J(
+          "Controls",
+          "Reading the info panels",
+          "Plant biology shows the selected plant (or the latest): stage, age, health, hydration, stored energy and vigor. Ecosystem counts plants, fungi, seeds, pollinators, birds, fruit and animals. The World log lists events such as seeds taking root, mutations, pollination and deaths.",
+          "panel ecosystem log biology stats",
+        );
+        JR.sort((a, b) => (a.c === b.c ? 0 : 0));
+        (function () {
+          const ov = $("journal"),
+            q = $("jq"),
+            list = $("jlist"),
+            body = $("jbody"),
+            cats = $("jcats");
+          let cat = "All",
+            cur = 0;
+          const CATS = ["All", ...new Set(JR.map((e) => e.c))];
+          cats.innerHTML = CATS.map(
+            (c) => `<button data-c="${c}">${c}</button>`,
+          ).join("");
+          function show(i) {
+            cur = i;
+            const e = JR[i];
+            body.innerHTML = `<div class="jc">${e.c}</div><h3>${e.t}</h3><p>${e.b}</p>`;
+            list
+              .querySelectorAll("button")
+              .forEach((b) => b.classList.toggle("on", +b.dataset.i === i));
+          }
+          function render() {
+            const s = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+            const m = [];
+            JR.forEach((e, i) => {
+              if (cat !== "All" && e.c !== cat) return;
+              const h = (e.t + " " + e.c + " " + e.b + " " + e.k).toLowerCase();
+              if (s.every((w) => h.includes(w)))
+                m.push([
+                  i,
+                  e.t.toLowerCase().includes(s[0] || "\u0000") ? 0 : 1,
+                ]);
+            });
+            m.sort((a, b) => a[1] - b[1]);
+            list.innerHTML = m.length
+              ? m
+                  .map(
+                    ([i]) =>
+                      `<button data-i="${i}"><b>${JR[i].t}</b><small>${JR[i].c}</small></button>`,
+                  )
+                  .join("")
+              : '<div class="jnone">No entries match.</div>';
+            cats
+              .querySelectorAll("button")
+              .forEach((b) => b.classList.toggle("on", b.dataset.c === cat));
+            if (m.length) show(m.find((x) => x[0] === cur) ? cur : m[0][0]);
+            else body.innerHTML = "";
+          }
+          list.onclick = (e) => {
+            const b = e.target.closest("button");
+            if (b) show(+b.dataset.i);
+          };
+          cats.onclick = (e) => {
+            const b = e.target.closest("button");
+            if (b) {
+              cat = b.dataset.c;
+              render();
+            }
+          };
+          q.oninput = render;
+          window.openJournal = () => {
+            ov.classList.add("open");
+            render();
+            q.focus();
+          };
+          window.closeJournal = () => ov.classList.remove("open");
+          $("jbtn").onclick = () =>
+            ov.classList.contains("open") ? closeJournal() : openJournal();
+          $("jclose").onclick = closeJournal;
+          ov.addEventListener("pointerdown", (e) => {
+            if (e.target === ov) closeJournal();
+          });
+          window.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") closeJournal();
+            else if (
+              (e.key === "j" || e.key === "J") &&
+              !["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName) &&
+              !e.ctrlKey &&
+              !e.metaKey
+            )
+              ov.classList.contains("open") ? closeJournal() : openJournal();
+          });
+        })();
 
         /* ---------- drawing: world ---------- */
         const hash = (i) =>
