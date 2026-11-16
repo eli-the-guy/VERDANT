@@ -366,6 +366,78 @@
           12px/1.4 ui-monospace,
           monospace;
       }
+      .toolbar {
+        position: absolute;
+        left: 10px;
+        bottom: 46px;
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        max-width: calc(100% - 230px);
+      }
+      .toolbar button {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 50px;
+        padding: 4px 0 3px;
+        background: #0b1713cc;
+        backdrop-filter: blur(6px);
+        font-size: 17px;
+        line-height: 1.15;
+      }
+      .toolbar button small {
+        font-size: 9px;
+        opacity: 0.85;
+        white-space: nowrap;
+      }
+      .toolbar button.active {
+        outline: 2px solid #f5ce70;
+        background: #1d3a2b;
+      }
+      .toolbar button.locked {
+        opacity: 0.7;
+      }
+      .moneybox {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0b1713dd;
+        border: 1px solid #3d6b50;
+        border-radius: 12px;
+        padding: 5px 16px;
+        text-align: center;
+        backdrop-filter: blur(6px);
+      }
+      .moneybox[hidden] {
+        display: none;
+      }
+      .moneybox span {
+        display: block;
+        font-size: 20px;
+        font-weight: 700;
+        color: #f5ce70;
+      }
+      .moneybox small {
+        color: #9fc0ab;
+        font-size: 10px;
+      }
+      .shoprow {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        padding: 6px 0;
+        border-bottom: 1px solid #20372e;
+      }
+      .shoprow em {
+        display: block;
+        color: var(--muted);
+        font-size: 10.5px;
+        font-style: normal;
+        margin-left: 20px;
+      }
     </style>
   </head>
   <body>
@@ -391,6 +463,10 @@
           ><button id="zoomReset" title="Reset view" aria-label="Reset view">
             ⌂
           </button>
+        </div>
+        <div class="toolbar" id="toolbar"></div>
+        <div class="moneybox" id="moneyBox" hidden>
+          <span id="moneyAmt">$0</span><small id="moneyGoal"></small>
         </div>
         <div class="stagefoot">
           <span
@@ -563,6 +639,44 @@
             Choose something, then click the ground in the scene. Plants near
             ponds get extra water; fungi need damp soil and something to
             decompose.
+          </div>
+        </div>
+        <div class="panel wide">
+          <h2>Challenge mode</h2>
+          <div class="hint" style="margin: 0 0 10px">
+            Resets the world, locks time at 0.1× and gives you $400. Seeds and
+            tools cost money — pick fruit, sell your harvest, dig up plants with
+            the shovel to sell them. A chimera seed costs $10,000. Goal:
+            $100,000.
+          </div>
+          <div class="actions">
+            <button class="primary" id="chalBtn">Start challenge</button
+            ><button id="sellBtn" disabled>Sell harvest</button>
+          </div>
+          <div class="stats" style="margin-top: 10px">
+            <div class="stat">
+              <small>Money</small><strong id="chalMoney">—</strong>
+            </div>
+            <div class="stat">
+              <small>Total earned</small><strong id="chalEarned">—</strong>
+            </div>
+            <div class="stat">
+              <small>Harvest bag</small
+              ><strong id="bagCount" style="font-size: 15px">—</strong>
+            </div>
+            <div class="stat">
+              <small>Bag value</small><strong id="bagValue">—</strong>
+            </div>
+          </div>
+          <div class="bar" style="margin-top: 10px">
+            <i id="chalBar" style="background: #f5ce70"></i>
+          </div>
+          <div style="margin-top: 10px">
+            <div class="hint" style="margin: 0 0 4px">
+              <b>Tool shop</b> (unlock once, or pay per use). Keys 1–9 pick
+              tools.
+            </div>
+            <div id="shopList"></div>
           </div>
         </div>
         <div class="panel wide">
@@ -1492,6 +1606,9 @@
           clampCam();
           animals = [];
           corpses = [];
+          hives = [];
+          feeders = [];
+          fxs = [];
           initAnimals();
           log("A fresh ecosystem begins.");
         }
@@ -1660,13 +1777,16 @@
           return "Mature";
         }
         function ph(p) {
-          return p.germ < 1 ? 0 : 8 + p.stem * 150 * VP(p).h * p.g.h;
+          return p.germ < 1
+            ? 0
+            : (p.stake ? 1.12 : 1) * (8 + p.stem * 150 * VP(p).h * p.g.h);
         }
 
         /* ---------- plant geometry (local coords: ground baseline is soilY; drawPlant shifts by p.gy-soilY) ---------- */
         function stemPt(p, t, H) {
           const v = VP(p),
-            t2 = t * t;
+            t2 = t * t,
+            sk = p.stake ? 0.1 : 1;
           const wob =
             Math.sin(t * 3.2 + p.phase) *
             H *
@@ -1676,15 +1796,17 @@
           const nut = Math.sin(clockT * 0.9 + p.phase) * H * 0.028 * t2 * t;
           const x =
             p.x +
+            (p.stake ? (p.sd || 1) * -3 * t : 0) +
             (p.lean * H +
               p.sway * v.flex * H * 0.1 +
               p.dd * p.droop * H * 0.45) *
+              sk *
               t2 +
-            wob +
-            nut;
+            wob * sk +
+            nut * sk;
           const y =
             soilY -
-            H * t * (1 - p.droop * 0.3 * t) +
+            H * t * (1 - p.droop * 0.3 * t * sk) +
             Math.cos(clockT * 0.9 + p.phase) * H * 0.01 * t2 * t;
           return [x, y];
         }
@@ -1729,6 +1851,11 @@
           return ground(x) - p.gy;
         }
         function vinePt(p, t) {
+          if (p.stake) {
+            const sx = p.x + (p.sd || 1) * 8,
+              L = (10 + p.stem * 150) * 0.8;
+            return [sx + Math.sin(t * 9 + p.phase) * 3, soilY - 2 - L * t];
+          }
           const x = p.x + p.dd * (10 + p.stem * 150) * t;
           return [
             x + p.sway * 0.3 * t,
@@ -2385,7 +2512,12 @@
               const d = Math.abs(q.x - p.x);
               if (d < 50) {
                 const dh = ph(q) - myH;
-                if (dh > 8) shade += 0.3 * (1 - d / 50) * Math.min(1, dh / 60);
+                if (dh > 8)
+                  shade +=
+                    0.3 *
+                    (1 - d / 50) *
+                    Math.min(1, dh / 60) *
+                    clamp(q.leaf, 0.3, 1);
               }
             }
             shade = Math.min(0.75, shade);
@@ -2453,6 +2585,11 @@
               p.health = clamp(p.health + dh * hours, 0, 100);
               let growth =
                 1.4 * v.rate * photo * hours * clamp(p.health / 60, 0.25, 1);
+              if (p.fertT > 0) {
+                growth *= 1.6;
+                p.fertT -= hours;
+                p.health = Math.min(100, p.health + hours * 0.05);
+              }
               p.energy = clamp(
                 p.energy + photo * hours * 0.5 - 0.012 * hours,
                 0,
@@ -2467,6 +2604,8 @@
               p.age += growth;
               fertility = Math.max(8, fertility - growth * 0.012);
             }
+            if (p.noBr > 0) p.noBr -= hours;
+            if (p.prune > 0) p.prune = Math.max(0, p.prune - hours / 150);
             const tree = !!v.tree,
               bsp = v.bsp || (tree ? 5 : 3.2);
             p.stem = Math.min(1, p.age / (tree ? 70 : 34));
@@ -2474,7 +2613,7 @@
               v.bmax || (tree ? 12 : 10),
               Math.floor(p.age / bsp),
             );
-            while (p.branches.length < desired) {
+            while (p.branches.length < desired && !(p.noBr > 0)) {
               const n = v.twn || 0,
                 ba = v.bang;
               p.branches.push({
@@ -2604,7 +2743,8 @@
                 } else if (season === 3 && Math.random() < hours * 0.02)
                   detachFruit(p, f);
               }
-              p.fruitTimer += hours * (photo > 0.03 ? 1 : 0.3);
+              p.fruitTimer +=
+                hours * (photo > 0.03 ? 1 : 0.3) * (1 + 0.18 * (p.prune || 0));
               if (
                 p.fruitTimer >= F.every &&
                 p.fruits.length < F.max &&
@@ -2743,7 +2883,7 @@
           const full = countAlive() >= MAXP;
           for (const s of seeds) {
             if (s.gone || !s.landed) continue;
-            const lm = moisture + nearPond(s.x) * 38;
+            const lm = moisture + nearPond(s.x) * 38 + (s.wet ? 22 : 0);
             if (
               s.age >= s.wait &&
               !full &&
@@ -3187,10 +3327,50 @@
               hue: Math.floor(rand(0, 4)),
             });
           }
+          for (const h of hives) {
+            h.t += bdt;
+            if (
+              h.t > 2 &&
+              bugs.filter((g) => g.hive === h).length < 6 &&
+              dl > 0.25 &&
+              temp > 6 &&
+              weather !== "rain"
+            ) {
+              h.t = 0;
+              bugs.push({
+                x: h.x,
+                y: ground(h.x) - 24,
+                kind: "bee",
+                t: null,
+                linger: 0,
+                ph: rand(0, 6.28),
+                face: 1,
+                leaving: false,
+                side: 1,
+                hue: 0,
+                hive: h,
+              });
+            }
+          }
           for (let i = bugs.length - 1; i >= 0; i--) {
             const g = bugs[i];
             if (bdt <= 0) break;
-            if (bugs.length > want && !g.leaving && Math.random() < bdt * 0.5) {
+            if (g.hive && (dl < 0.25 || weather === "rain" || temp < 6)) {
+              const dx = g.hive.x - g.x,
+                dy = ground(g.hive.x) - 20 - g.y,
+                d = Math.hypot(dx, dy) || 1;
+              g.face = dx >= 0 ? 1 : -1;
+              g.x += (dx / d) * 95 * bdt;
+              g.y += (dy / d) * 95 * bdt;
+              if (d < 12) bugs.splice(i, 1);
+              continue;
+            }
+            if (
+              bugs.length > want &&
+              !g.leaving &&
+              !g.hive &&
+              Math.random() < bdt * 0.5
+            ) {
               g.leaving = true;
               g.side = Math.random() < 0.5 ? -1 : 1;
             }
@@ -3208,7 +3388,10 @@
             }
             const wd = windS * windNow * 34 * bdt;
             if (!g.t) {
-              g.x += Math.cos(clockT * 0.8 + g.ph) * 20 * bdt + wd;
+              g.x +=
+                Math.cos(clockT * 0.8 + g.ph) * 20 * bdt +
+                wd +
+                (g.hive ? (g.hive.x - g.x) * 0.12 * bdt : 0);
               g.y += Math.sin(clockT * 1.1 + g.ph) * 14 * bdt;
               continue;
             }
@@ -3271,10 +3454,63 @@
               });
             }
           }
+          if (
+            bdt > 0 &&
+            dl > 0.3 &&
+            feeders.length &&
+            birds.length < 7 &&
+            Math.random() < bdt * 0.35
+          ) {
+            const fd = feeders[Math.floor(Math.random() * feeders.length)];
+            if (fd.amt > 0) {
+              const l = Math.random() < 0.5;
+              birds.push({
+                x: l ? camX - 30 : vx1 + 30,
+                y: rand(70, 180),
+                t: null,
+                feeder: fd,
+                state: "fly",
+                face: l ? 1 : -1,
+                ph: rand(0, 6.28),
+                c: ["#4a78b8", "#8a5a3a", "#c95a4a", "#4a4a52"][
+                  Math.floor(rand(0, 4))
+                ],
+                perch: 0,
+                cargo: null,
+                drop: 0,
+              });
+            }
+          }
           for (let i = birds.length - 1; i >= 0; i--) {
             const b = birds[i];
             if (bdt <= 0) break;
             if (b.state === "fly") {
+              if (b.feeder) {
+                const fd = b.feeder;
+                if (fd.amt <= 0) {
+                  b.state = "leave";
+                  b.dir = b.face || 1;
+                  b.feeder = null;
+                  continue;
+                }
+                const tx = fd.x,
+                  ty = ground(fd.x) - 6,
+                  dx = tx - b.x,
+                  dy = ty - b.y,
+                  d = Math.hypot(dx, dy) || 1;
+                b.face = dx >= 0 ? 1 : -1;
+                if (d > 8) {
+                  const s2 = 110 * (d > 400 ? 2 : 1);
+                  b.x += (dx / d) * s2 * bdt;
+                  b.y +=
+                    (dy / d) * s2 * bdt +
+                    Math.sin(clockT * 6 + b.ph) * 10 * bdt;
+                } else {
+                  b.state = "peck";
+                  b.perch = 0;
+                }
+                continue;
+              }
               if (
                 !b.t ||
                 !b.t.p.fruits.includes(b.t.f) ||
@@ -3299,6 +3535,27 @@
               } else {
                 b.state = "perch";
                 b.perch = 0;
+              }
+            } else if (b.state === "peck") {
+              b.perch += bdt;
+              if (b.feeder) b.feeder.amt -= bdt * 2.5;
+              if (b.perch > 3.5 || !b.feeder || b.feeder.amt <= 0) {
+                fertility = Math.min(100, fertility + 0.5);
+                const cand = plants.filter(
+                  (p) =>
+                    p.state === "alive" &&
+                    p.age > 25 &&
+                    VP(p).seeds > 0 &&
+                    Math.abs(p.x - b.x) < 400,
+                );
+                if (cand.length) {
+                  const p = cand[Math.floor(Math.random() * cand.length)];
+                  b.cargo = { gn: p.gn, type: p.type, n: 2 };
+                }
+                b.state = "leave";
+                b.dir = Math.random() < 0.5 ? -1 : 1;
+                b.face = b.dir;
+                b.feeder = null;
               }
             } else if (b.state === "perch") {
               b.perch += bdt;
@@ -3410,6 +3667,7 @@
               if (Math.random() < rdt * 0.05) f.dir *= -1;
             }
           moveAnimals(rdt);
+          updateFx(rdt);
         }
 
         /* ---------- drawing: plants ---------- */
@@ -4529,8 +4787,9 @@
             ctx.restore();
             return;
           }
-          const H = ph(p),
-            old = clamp((p.t / 24 - p.life * 0.55) / (p.life * 0.45), 0, 1);
+          const H = ph(p);
+          if (p.stake) drawStake(p, H);
+          const old = clamp((p.t / 24 - p.life * 0.55) / (p.life * 0.45), 0, 1);
           const yel = clamp((65 - p.health) / 65 + old * 0.25, 0, 1),
             aut = v.decid
               ? season === 2
@@ -5739,7 +5998,10 @@
           ctx.save();
           ctx.translate(b.x, b.y);
           ctx.scale(b.face, 1);
-          const fl = b.state === "perch" ? -0.2 : Math.sin(clockT * 14 + b.ph);
+          const fl =
+            b.state === "perch" || b.state === "peck"
+              ? -0.2
+              : Math.sin(clockT * 14 + b.ph);
           ctx.fillStyle = b.c;
           ctx.beginPath();
           ctx.moveTo(-7, 0);
@@ -7152,6 +7414,639 @@
           ctx.restore();
         }
 
+        /* ---------- tools, shop and challenge mode ---------- */
+        let tool = "hand",
+          chal = null,
+          bag = [],
+          hover = null,
+          hives = [],
+          feeders = [],
+          fxs = [];
+        const TOOLS = {
+          hand: {
+            n: "Hand",
+            ic: "✋",
+            price: 0,
+            perm: 1,
+            tip: "Inspect plants, pick ripe fruit, plant the chosen seed",
+          },
+          shovel: {
+            n: "Shovel",
+            ic: "⛏️",
+            price: 0,
+            perm: 1,
+            tip: "Dig up a plant or fungus (sells it in challenge mode)",
+            r: 18,
+          },
+          water: {
+            n: "Watering can",
+            ic: "💧",
+            price: 250,
+            perm: 1,
+            tip: "Water plants and seeds nearby",
+            r: 70,
+          },
+          clip: {
+            n: "Branch clippers",
+            ic: "🪓",
+            price: 220,
+            perm: 1,
+            tip: "Clip off a branch. Pruned plants fruit faster and regrow it later",
+            r: 16,
+          },
+          scissors: {
+            n: "Scissors",
+            ic: "✂️",
+            price: 150,
+            perm: 1,
+            tip: "Trim leaves. Lets light reach shaded neighbours",
+            r: 45,
+          },
+          stake: {
+            n: "Stake",
+            ic: "🪵",
+            price: 30,
+            tip: "Drive a stake beside a plant: it grows straight along it and vines climb it",
+            r: 10,
+          },
+          hive: {
+            n: "Beehive",
+            ic: "🐝",
+            price: 500,
+            tip: "Spawns bees that pollinate flowers all over the map in daylight",
+            r: 16,
+          },
+          seed: {
+            n: "Bird seed",
+            ic: "🌾",
+            price: 25,
+            tip: "Scatter seed to attract birds. They fertilise the soil and carry seeds around",
+            r: 24,
+          },
+          fert: {
+            n: "Fertiliser",
+            ic: "🧪",
+            price: 60,
+            tip: "Boost growth of plants nearby for three days",
+            r: 90,
+          },
+        };
+        const TORDER = [
+          "hand",
+          "shovel",
+          "water",
+          "clip",
+          "scissors",
+          "stake",
+          "hive",
+          "seed",
+          "fert",
+        ];
+        const FUNGI_PRICE = {
+            toadstool: 30,
+            brown: 25,
+            puffball: 35,
+            glowcap: 70,
+            mold: 10,
+            slime: 25,
+            bracket: 45,
+            coral: 40,
+          },
+          AN_PRICE = { mouse: 60, rabbit: 140, deer: 400, fox: 300 };
+        function seedPrice(t) {
+          if (t === "chimera") return 10000;
+          if (FUNGI_PRICE[t]) return FUNGI_PRICE[t];
+          if (AN_PRICE[t]) return AN_PRICE[t];
+          const v = V[t];
+          if (!v) return 20;
+          let p = 10 + (v.seeds || 0) * 2.5;
+          if (v.fruit) p += 30 + v.fruit.max * 5 + v.fruit.size * 3;
+          if (v.spread) p += 25;
+          if (v.tree) p += 40;
+          if (!v.annual) p += 12;
+          return Math.max(10, Math.round(p / 5) * 5);
+        }
+        function fruitValue(v) {
+          const F = v.fruit;
+          if (!F) return 0;
+          let b = 5 + F.size * 1.8 + F.seeds * 2;
+          if (v.gn)
+            b *= 6 * (1 + (v.gn.gen || 0) * 0.15) * (1 + (v.glow ? 0.5 : 0));
+          return Math.round(b);
+        }
+        function plantValue(p) {
+          const v = VP(p),
+            mat = clamp(p.age / (v.tree ? 60 : 30), 0.25, 1.3);
+          let val = seedPrice(p.type) * 0.35 * mat;
+          if (p.gn) val += 250 * (p.gn.gen || 0);
+          return Math.round(val);
+        }
+        const money = (n) => "$" + Math.round(n).toLocaleString();
+        function earn(n) {
+          if (chal) {
+            chal.money += n;
+            chal.earned += n;
+          }
+        }
+        function spend(n) {
+          if (!chal) return true;
+          if (chal.money < n) {
+            log(`Not enough money — you need ${money(n)}.`);
+            return false;
+          }
+          chal.money -= n;
+          return true;
+        }
+        function bagAdd(v, f) {
+          bag.push({
+            n: v.fruit.nm || v.fruit.kind,
+            v: Math.round(fruitValue(v) * f),
+          });
+        }
+        function placeSelected(t, x) {
+          const price = chal ? seedPrice(t) : 0;
+          if (chal && chal.money < price) {
+            log(`${money(price)} needed — you have ${money(chal.money)}.`);
+            return false;
+          }
+          const ok = AN[t]
+            ? spawnAnimal(x, t, false, true)
+            : FUNGI[t]
+              ? plantFungus(x, t, false)
+              : plant(x, t);
+          if (ok && chal) {
+            chal.money -= price;
+          }
+          return ok;
+        }
+        function setSeedLabels() {
+          for (const o of $("seedType").options) {
+            if (!o.dataset.t) o.dataset.t = o.textContent;
+            o.textContent = chal
+              ? `${o.dataset.t.split(" · ")[0]} — ${money(seedPrice(o.value))}`
+              : o.dataset.t;
+          }
+        }
+        function buildToolbar() {
+          const el = $("toolbar");
+          el.innerHTML = "";
+          TORDER.forEach((k, i) => {
+            const T = TOOLS[k],
+              b = document.createElement("button");
+            b.dataset.t = k;
+            const locked = chal && T.perm && T.price && !chal.owned[k];
+            b.className =
+              (tool === k ? "active " : "") + (locked ? "locked" : "");
+            b.title =
+              `${T.n} (${i + 1}) — ${T.tip}` +
+              (chal && T.price
+                ? ` · ${money(T.price)}${T.perm ? " to unlock" : " each use"}`
+                : "");
+            b.innerHTML = `<span>${locked ? "🔒" : T.ic}</span><small>${chal && T.price ? money(T.price) : T.n.split(" ")[0]}</small>`;
+            b.onclick = () => selectTool(k);
+            el.appendChild(b);
+          });
+          const sh = $("shopList");
+          if (sh) {
+            sh.innerHTML = TORDER.filter((k) => TOOLS[k].price)
+              .map((k) => {
+                const T = TOOLS[k];
+                return `<div class="shoprow"><span>${T.ic} <b>${T.n}</b> <em>${T.tip}</em></span><span>${money(T.price)}${T.perm ? (chal && chal.owned[k] ? " ✓" : " unlock") : " / use"}</span></div>`;
+              })
+              .join("");
+          }
+        }
+        function selectTool(k) {
+          const T = TOOLS[k];
+          if (chal && T.perm && T.price && !chal.owned[k]) {
+            if (!spend(T.price)) {
+              return;
+            }
+            chal.owned[k] = 1;
+            log(`Bought the ${T.n.toLowerCase()} for ${money(T.price)}.`);
+          }
+          tool = k;
+          buildToolbar();
+          $("world").style.cursor = k === "hand" ? "" : "crosshair";
+        }
+        function nearestPlant(wx, wy, r, alive) {
+          let best = null,
+            bd = r;
+          for (const p of plants) {
+            if (alive && p.state === "dead") continue;
+            const H = p.germ < 1 ? 20 : ph(p),
+              dx = Math.abs(p.x - wx);
+            if (dx < bd && wy > p.gy - H - 34 && wy < p.gy + 12) {
+              bd = dx;
+              best = p;
+            }
+          }
+          return best;
+        }
+        function burst(x, y, col, n, spread, vy0) {
+          for (let i = 0; i < n; i++)
+            fxs.push({
+              x: x + rand(-spread, spread),
+              y: y - rand(0, 40),
+              vx: rand(-10, 10),
+              vy: vy0 + rand(0, 60),
+              c: col,
+              t: 0,
+            });
+        }
+        function leavesFall(p, n) {
+          for (let i = 0; i < n; i++)
+            if (fall.length < 200)
+              fall.push({
+                k: VP(p).gn ? VP(p).leaf : null,
+                x: p.x + rand(-18, 18),
+                y: p.gy - ph(p) * rand(0.2, 0.9),
+                vy: rand(18, 34),
+                ph: rand(0, 6.28),
+                rot: rand(0, 6.28),
+                vr: rand(-2, 2),
+                landed: false,
+                t: 0,
+                c: p.type,
+              });
+        }
+        function applyTool(k, wx, wy) {
+          const T = TOOLS[k];
+          if (chal && T.perm && T.price && !chal.owned[k]) {
+            log("Unlock that tool first.");
+            return;
+          }
+          const gy = ground(wx);
+          switch (k) {
+            case "water": {
+              let n = 0;
+              for (const p of plants)
+                if (p.state !== "dead" && Math.abs(p.x - wx) < T.r) {
+                  p.water = Math.min(1, p.water + 0.6);
+                  p.health = Math.min(100, p.health + 4);
+                  n++;
+                }
+              for (const s of seeds)
+                if (s.landed && Math.abs(s.x - wx) < T.r) s.wet = 1;
+              moisture = Math.min(100, moisture + 2.5);
+              burst(wx, gy - 70, "#7fc4ee", 22, T.r * 0.8, 140);
+              if (n) log(`Watered ${n} plant${n > 1 ? "s" : ""}.`);
+              break;
+            }
+            case "fert": {
+              if (!spend(T.price)) return;
+              let n = 0;
+              for (const p of plants)
+                if (p.state !== "dead" && Math.abs(p.x - wx) < T.r) {
+                  p.fertT = 72;
+                  n++;
+                }
+              fertility = Math.min(100, fertility + 3);
+              burst(wx, gy - 60, "#6b4a2a", 26, T.r * 0.8, 100);
+              log(
+                n
+                  ? `Fertilised ${n} plant${n > 1 ? "s" : ""}.`
+                  : "Fertiliser worked into the soil.",
+              );
+              break;
+            }
+            case "scissors": {
+              const p = nearestPlant(wx, wy, T.r, true);
+              if (!p || p.germ < 1) {
+                return;
+              }
+              p.leaf = Math.max(0.12, p.leaf - 0.4);
+              p.energy = Math.max(0, p.energy - 0.04);
+              leavesFall(p, 6);
+              break;
+            }
+            case "clip": {
+              let bp = null,
+                bi = -1,
+                bd = T.r;
+              for (const p of plants) {
+                if (p.state === "dead" || p.germ < 1 || !p.branches.length)
+                  continue;
+                const H = ph(p),
+                  oy = p.gy - soilY;
+                for (let i = 0; i < p.branches.length; i++) {
+                  const b = p.branches[i];
+                  if (b.len <= 0.05) continue;
+                  const g = branchGeom(p, i, H),
+                    cx = g.ox + g.side * g.L * 0.55,
+                    cy = Math.min(g.oy, g.ty) - g.L * 0.22 * b.arch;
+                  for (let t = 0; t <= 1.001; t += 0.2) {
+                    const q = qpt(g.ox, g.oy, cx, cy, g.tx, g.ty, t),
+                      d = Math.hypot(q[0] - wx, q[1] + oy - wy);
+                    if (d < bd) {
+                      bd = d;
+                      bp = p;
+                      bi = i;
+                    }
+                  }
+                }
+              }
+              if (!bp) return;
+              bp.branches.splice(bi, 1);
+              bp.noBr = 60;
+              bp.prune = Math.min(4, (bp.prune || 0) + 1);
+              bp.health = Math.min(100, bp.health + 3);
+              for (const bud of bp.buds) {
+                if (bud.br === bi) bud.br = -1;
+                else if (bud.br > bi) bud.br--;
+              }
+              bp.fruits = bp.fruits.filter((f) => f.br !== bi);
+              for (const f of bp.fruits) if (f.br > bi) f.br--;
+              leavesFall(bp, 7);
+              log(`Clipped a branch off a ${VP(bp).name.toLowerCase()}.`);
+              break;
+            }
+            case "stake": {
+              const p = nearestPlant(wx, wy, 46, true);
+              if (!p || p.stake) {
+                log(
+                  p
+                    ? "That plant is already staked."
+                    : "Place a stake right next to a plant.",
+                );
+                return;
+              }
+              if (!spend(T.price)) return;
+              p.stake = 1;
+              p.sd = wx >= p.x ? 1 : -1;
+              log(`Staked a ${VP(p).name.toLowerCase()}.`);
+              break;
+            }
+            case "hive": {
+              if (hives.length >= 4) {
+                log("Four hives is plenty for this meadow.");
+                return;
+              }
+              if (inWater(wx, 6)) {
+                log("Hives need dry ground.");
+                return;
+              }
+              if (!spend(T.price)) return;
+              hives.push({ x: clamp(wx, 30, WW - 30), t: 0 });
+              log("A beehive was set up. Bees will fly out in daylight.");
+              break;
+            }
+            case "seed": {
+              if (feeders.length >= 6) {
+                log("Plenty of feeders already.");
+                return;
+              }
+              if (inWater(wx, 6)) return;
+              if (!spend(T.price)) return;
+              feeders.push({ x: clamp(wx, 25, WW - 25), amt: 60, t: 0 });
+              log("Bird seed scattered — birds will come.");
+              break;
+            }
+            case "shovel": {
+              let f = null,
+                fd = 24;
+              for (const q of fungi) {
+                const d = Math.abs(q.x - wx);
+                if (d < fd && wy > ground(q.x) - 60 && wy < ground(q.x) + 20) {
+                  fd = d;
+                  f = q;
+                }
+              }
+              const p = nearestPlant(wx, wy, T.r + 8, true);
+              if (p && (!f || Math.abs(p.x - wx) <= fd)) {
+                const val = plantValue(p);
+                p.remove = true;
+                p.state = "dead";
+                plants = plants.filter((q) => q !== p);
+                if (sel === p) sel = null;
+                if (chal) {
+                  earn(val);
+                  log(`Sold a ${VP(p).name.toLowerCase()} for ${money(val)}.`);
+                } else log(`Dug up a ${VP(p).name.toLowerCase()}.`);
+                return;
+              }
+              if (f) {
+                fungi.splice(fungi.indexOf(f), 1);
+                const val = Math.round(
+                  seedPrice(f.type) * 0.5 * clamp(f.size, 0.2, 1),
+                );
+                if (chal) {
+                  earn(val);
+                  log(
+                    `Sold ${FUNGI[f.type].name.toLowerCase()} for ${money(val)}.`,
+                  );
+                } else log("Dug up a fungus.");
+              }
+              break;
+            }
+          }
+        }
+        function sellBag() {
+          if (!chal || !bag.length) return;
+          const t = bag.reduce((a, b) => a + b.v, 0);
+          earn(t);
+          log(`Sold ${bag.length} fruit for ${money(t)}.`);
+          bag = [];
+        }
+        function startChallenge() {
+          newWorld();
+          chal = {
+            money: 400,
+            earned: 0,
+            owned: { hand: 1, shovel: 1 },
+            goal: 100000,
+            won: false,
+          };
+          bag = [];
+          speed = 0.1;
+          paused = false;
+          tool = "hand";
+          $("speed").disabled = true;
+          $("tlBtn").disabled = true;
+          $("stepBtn").disabled = true;
+          $("speed").value = 0;
+          $("speedOut").textContent = "0.1× 🔒";
+          $("pauseBtn").textContent = "Ⅱ Pause";
+          $("chalBtn").textContent = "Exit challenge";
+          $("sellBtn").disabled = false;
+          setSeedLabels();
+          buildToolbar();
+          $("world").style.cursor = "";
+          log(
+            "Challenge started: time is locked at 0.1×. Buy seeds, sell fruit, reach " +
+              money(chal.goal) +
+              ".",
+          );
+        }
+        function exitChallenge() {
+          chal = null;
+          bag = [];
+          speed = 1;
+          $("speed").disabled = false;
+          $("tlBtn").disabled = false;
+          $("stepBtn").disabled = false;
+          $("speed").value = 1;
+          $("speedOut").textContent = "1×";
+          $("chalBtn").textContent = "Start challenge";
+          $("sellBtn").disabled = true;
+          setSeedLabels();
+          buildToolbar();
+          log("Back to sandbox mode.");
+        }
+        function updateFx(rdt) {
+          for (const h of feeders) h.t += rdt;
+          feeders = feeders.filter((f) => f.amt > 0.02);
+          if (rdt <= 0) return;
+          for (let i = fxs.length - 1; i >= 0; i--) {
+            const q = fxs[i];
+            q.t += rdt;
+            q.x += q.vx * rdt;
+            q.y += q.vy * rdt;
+            q.vy += 240 * rdt;
+            if (q.y >= ground(q.x) - 1 || q.t > 2) fxs.splice(i, 1);
+          }
+        }
+        function uiTools() {
+          const bx = $("moneyBox");
+          bx.hidden = !chal;
+          if (chal) {
+            const p = clamp(chal.money / chal.goal, 0, 1);
+            $("moneyAmt").textContent = money(chal.money);
+            $("moneyGoal").textContent =
+              `Goal ${money(chal.goal)}${chal.won ? " ✓" : ""}`;
+            $("chalMoney").textContent = money(chal.money);
+            $("chalEarned").textContent = money(chal.earned);
+            const bv = bag.reduce((a, b) => a + b.v, 0);
+            $("bagCount").textContent = bag.length + " fruit";
+            $("bagValue").textContent = money(bv);
+            $("sellBtn").textContent = bag.length
+              ? `Sell harvest (${money(bv)})`
+              : "Sell harvest";
+            $("chalBar").style.width = p * 100 + "%";
+            if (!chal.won && chal.money >= chal.goal) {
+              chal.won = true;
+              log(
+                `🏆 You reached ${money(chal.goal)}! Keep going if you like.`,
+              );
+            }
+          } else {
+            $("chalMoney").textContent = "—";
+            $("chalEarned").textContent = "—";
+            $("bagCount").textContent = "—";
+            $("bagValue").textContent = "—";
+            $("chalBar").style.width = "0";
+          }
+        }
+        /* ---------- drawing ---------- */
+        function drawStake(p, H) {
+          const vine = !!VP(p).vine,
+            sx = p.x + (p.sd || 1) * 8,
+            sh = vine ? (10 + p.stem * 150) * 0.8 + 16 : H * 1.12 + 8;
+          ctx.fillStyle = "#8a6a42";
+          ctx.beginPath();
+          ctx.moveTo(sx - 2.2, soilY - sh);
+          ctx.lineTo(sx + 2.2, soilY - sh);
+          ctx.lineTo(sx + 2.2, soilY + 3);
+          ctx.lineTo(sx, soilY + 10);
+          ctx.lineTo(sx - 2.2, soilY + 3);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,230,180,.25)";
+          ctx.fillRect(sx - 2.2, soilY - sh, 1.2, sh + 3);
+          if (!vine) {
+            ctx.strokeStyle = "#d8c59a";
+            ctx.lineWidth = 1.3;
+            for (let k = 1; k <= 3; k++) {
+              const t = k * 0.24,
+                q = stemPt(p, t, H),
+                y = soilY - H * t * 1.0;
+              ctx.beginPath();
+              ctx.moveTo(q[0], q[1]);
+              ctx.lineTo(sx, q[1]);
+              ctx.stroke();
+              ctx.fillStyle = "#d8c59a";
+              ctx.beginPath();
+              ctx.arc(sx, q[1], 1.5, 0, 6.3);
+              ctx.fill();
+            }
+          }
+        }
+        function drawHive(h) {
+          const x = h.x,
+            y = ground(x);
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.fillStyle = "#6b4a2a";
+          ctx.fillRect(-11, -9, 3, 9);
+          ctx.fillRect(8, -9, 3, 9);
+          ctx.fillStyle = "#e2b24a";
+          ctx.fillRect(-13, -26, 26, 17);
+          ctx.fillStyle = "rgba(0,0,0,.18)";
+          for (let k = 1; k < 4; k++) ctx.fillRect(-13, -26 + k * 4.2, 26, 1.1);
+          ctx.fillStyle = "#b9792e";
+          ctx.beginPath();
+          ctx.moveTo(-16, -26);
+          ctx.lineTo(0, -35);
+          ctx.lineTo(16, -26);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = "#2a1c10";
+          ctx.beginPath();
+          ctx.ellipse(0, -12, 4, 2.4, 0, 0, 6.3);
+          ctx.fill();
+          ctx.restore();
+        }
+        function drawFeeder(f) {
+          const y = ground(f.x),
+            n = Math.ceil(clamp(f.amt / 60, 0, 1) * 14);
+          ctx.save();
+          ctx.translate(f.x, y);
+          ctx.fillStyle = "#8a6a42";
+          ctx.fillRect(-10, -2, 20, 2.5);
+          for (let i = 0; i < n; i++) {
+            ctx.fillStyle = i % 3 ? "#e8c968" : "#c99a3a";
+            ctx.beginPath();
+            ctx.ellipse(
+              -8 + ((i * 37) % 16),
+              -3 - ((i * 13) % 3),
+              1.7,
+              1.1,
+              0,
+              0,
+              6.3,
+            );
+            ctx.fill();
+          }
+          ctx.restore();
+        }
+        function drawFx() {
+          for (const q of fxs) {
+            ctx.fillStyle = q.c;
+            ctx.globalAlpha = clamp(1.6 - q.t, 0, 1);
+            ctx.beginPath();
+            ctx.ellipse(q.x, q.y, 1.3, q.c === "#7fc4ee" ? 3 : 1.6, 0, 0, 6.3);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
+        function drawToolHover() {
+          if (!hover || tool === "hand") return;
+          const T = TOOLS[tool],
+            r = (T.r || 12) * zoom;
+          ctx.save();
+          ctx.strokeStyle = "rgba(245,206,112,.9)";
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          ctx.arc(hover[0], hover[1], Math.max(6, r), 0, 6.3);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font = "16px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(T.ic, hover[0], hover[1] - Math.max(6, r) - 6);
+          ctx.restore();
+        }
+
         /* ---------- drawing: world ---------- */
         const hash = (i) =>
           Math.abs(Math.sin(i * 12.9898 + 1.234) * 43758.5453) % 1;
@@ -7666,6 +8561,9 @@
           for (const f of fungi) if (f.x > xl && f.x < xr) drawFungus(f);
           for (const c of corpses) if (c.x > xl && c.x < xr) drawCorpse(c);
           for (const a of animals) if (a.x > xl && a.x < xr) drawAnimal(a);
+          for (const h of hives) if (h.x > xl && h.x < xr) drawHive(h);
+          for (const f of feeders) if (f.x > xl && f.x < xr) drawFeeder(f);
+          drawFx();
           for (const d of drops)
             if (d.x > xl && d.x < xr) {
               ctx.save();
@@ -7850,6 +8748,7 @@
             55,
           );
           mm = drawMinimap();
+          drawToolHover();
         }
         let mm = null;
 
@@ -7872,6 +8771,7 @@
         ];
         let uiT = 0;
         function ui() {
+          uiTools();
           const hh = time / 3600,
             si = seasonIndex();
           $("dayLabel").textContent =
@@ -8021,6 +8921,10 @@
         function clickAt(vx, vy) {
           const wx = camX + vx / zoom,
             wy = camY + vy / zoom;
+          if (tool !== "hand") {
+            applyTool(tool, wx, wy);
+            return;
+          }
           /* pick ripe fruit */
           for (const p of plants) {
             if (p.state === "dead" || !VP(p).fruit) continue;
@@ -8033,6 +8937,7 @@
               if (Math.hypot(wx - q[0], wy - fy) < Math.max(10, F.size + 6)) {
                 p.fruits.splice(p.fruits.indexOf(f), 1);
                 harvested++;
+                if (chal) bagAdd(VP(p), 1);
                 log(
                   `Picked a ripe ${F.nm || (F.kind === "berry" ? "blueberry cluster" : F.kind)}.`,
                 );
@@ -8046,6 +8951,7 @@
               d.done = true;
               d.state = "picked";
               harvested++;
+              if (chal && VP(d).fruit) bagAdd(VP(d), 0.6);
               log(
                 `Gathered a fallen ${d.kind[0] === "g" && d.kind[1] === "f" ? "fruit" : d.kind}.`,
               );
@@ -8087,9 +8993,7 @@
               log("Seeds need dry ground — try the pond banks.");
               return;
             }
-            if (AN[t]) spawnAnimal(wx, t, false, true);
-            else if (FUNGI[t]) plantFungus(wx, t, false);
-            else plant(wx, t);
+            placeSelected(t, wx);
           } else sel = null;
         }
         function pointerSetup() {
@@ -8252,12 +9156,11 @@
             log("That view is mostly water — pan to dry ground.");
             return;
           }
-          if (AN[t]) spawnAnimal(best, t, false, true);
-          else if (FUNGI[t]) plantFungus(best, t, false);
-          else plant(best, t);
+          placeSelected(t, best);
         };
         $("seedType").onchange = (e) => (selected = e.target.value);
         $("speed").oninput = (e) => {
+          if (chal) return;
           speed = +e.target.value;
           $("speedOut").textContent =
             speed.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") + "×";
@@ -8270,6 +9173,7 @@
           }
         };
         $("tlBtn").onclick = () => {
+          if (chal) return;
           const on = speed < 20,
             v = on ? 24 : 6;
           $("speed").value = v;
@@ -8286,6 +9190,7 @@
           $("pauseBtn").textContent = paused ? "▶ Resume" : "Ⅱ Pause";
         };
         $("stepBtn").onclick = () => {
+          if (chal) return;
           paused = true;
           $("pauseBtn").textContent = "▶ Resume";
           update(3600, 0);
@@ -8294,11 +9199,30 @@
           ui();
         };
         $("resetBtn").onclick = () => {
-          newWorld();
+          if (chal) {
+            startChallenge();
+          } else newWorld();
           animate(0);
           draw();
           ui();
         };
+        $("chalBtn").onclick = () => {
+          if (chal) exitChallenge();
+          else startChallenge();
+        };
+        $("sellBtn").onclick = sellBag;
+        canvas.addEventListener("pointermove", (e) => {
+          hover = toLogical(e);
+        });
+        canvas.addEventListener("pointerleave", () => {
+          hover = null;
+        });
+        window.addEventListener("keydown", (e) => {
+          const t = e.target && e.target.tagName;
+          if (t === "INPUT" || t === "SELECT" || t === "TEXTAREA") return;
+          const i = +e.key;
+          if (i >= 1 && i <= TORDER.length) selectTool(TORDER[i - 1]);
+        });
         $("clearBtn").onclick = () => {
           plants = [];
           fungi = [];
@@ -8325,6 +9249,7 @@
             camY += (mvy * 400 * real) / zoom;
             clampCam();
           }
+          if (chal) speed = 0.1;
           const run = !paused && speed > 0;
           if (run) {
             const simS = real * 3600 * speed,
@@ -8362,9 +9287,33 @@
             get birds() {
               return birds;
             },
+            get bugs() {
+              return bugs;
+            },
             get animals() {
               return animals;
             },
+            get chal() {
+              return chal;
+            },
+            get hives() {
+              return hives;
+            },
+            get feeders() {
+              return feeders;
+            },
+            get bag() {
+              return bag;
+            },
+            startChallenge,
+            exitChallenge,
+            applyTool,
+            selectTool,
+            seedPrice,
+            fruitValue,
+            plantValue,
+            sellBag,
+            placeSelected,
             get corpses() {
               return corpses;
             },
@@ -8419,6 +9368,8 @@
           };
         newWorld();
         fit();
+        buildToolbar();
+        setSeedLabels();
         requestAnimationFrame(frame);
         if (typeof ResizeObserver !== "undefined")
           new ResizeObserver(fit).observe(canvas);
