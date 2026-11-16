@@ -438,6 +438,58 @@
         font-style: normal;
         margin-left: 20px;
       }
+      .skipbar {
+        position: absolute;
+        top: 68px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: calc(100% - 190px);
+      }
+      .skipbar[hidden] {
+        display: none;
+      }
+      .skipbar button {
+        padding: 5px 9px;
+        font-size: 11px;
+        background: #0b1713dd;
+        white-space: nowrap;
+      }
+      .slot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+        border-bottom: 1px solid #20372e;
+        font-size: 12.5px;
+      }
+      .slot small {
+        display: block;
+        color: var(--muted);
+        font-size: 10.5px;
+        margin-top: 2px;
+      }
+      .slot.cur b {
+        color: #f5ce70;
+      }
+      .slotbtns {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .slotbtns button {
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+      .slotbtns button.on {
+        background: #2d5a3f;
+        outline: 1px solid #7ee0a0;
+      }
     </style>
   </head>
   <body>
@@ -467,6 +519,12 @@
         <div class="toolbar" id="toolbar"></div>
         <div class="moneybox" id="moneyBox" hidden>
           <span id="moneyAmt">$0</span><small id="moneyGoal"></small>
+        </div>
+        <div class="skipbar" id="skipBar" hidden>
+          <button data-h="1">⏩ 1 hour · $20</button
+          ><button data-h="5">5 hours · $30</button
+          ><button data-h="24">1 day · $100</button
+          ><button id="spdBtn">⚡ Speed</button>
         </div>
         <div class="stagefoot">
           <span
@@ -644,10 +702,11 @@
         <div class="panel wide">
           <h2>Challenge mode</h2>
           <div class="hint" style="margin: 0 0 10px">
-            Resets the world, locks time at 0.1× and gives you $400. Seeds and
-            tools cost money — pick fruit, sell your harvest, dig up plants with
-            the shovel to sell them. A chimera seed costs $10,000. Goal:
-            $100,000.
+            Resets the world, locks time at 0.1× and gives you $400. Pay to skip
+            time (1 h $20, 5 h $30, 1 day $100) or to unlock faster speeds ($50
+            per +0.5×). Seeds and tools cost money — pick fruit, sell your
+            harvest, dig up plants with the shovel to sell them. A chimera seed
+            costs $10,000. Goal: $100,000.
           </div>
           <div class="actions">
             <button class="primary" id="chalBtn">Start challenge</button
@@ -678,6 +737,17 @@
             </div>
             <div id="shopList"></div>
           </div>
+        </div>
+        <div class="panel wide">
+          <h2>Save slots</h2>
+          <div class="hint" style="margin: 0 0 8px">
+            3 sandbox + 3 challenge slots, stored in this browser. The current
+            slot autosaves every 15 s. Mark one slot <b>Offline</b>: browsers
+            can't run a closed page, so when you reopen the site (or come back
+            to the tab) that slot loads and fast-forwards by the real time you
+            were away, up to 2 game years.
+          </div>
+          <div id="slotList"></div>
         </div>
         <div class="panel wide">
           <h2>Plant biology</h2>
@@ -3327,7 +3397,7 @@
               hue: Math.floor(rand(0, 4)),
             });
           }
-          for (const h of hives) {
+          for (const h of hives.slice()) {
             h.t += bdt;
             if (
               h.t > 2 &&
@@ -3337,6 +3407,11 @@
               weather !== "rain"
             ) {
               h.t = 0;
+              h.n = (h.n || 0) + 1;
+              if (h.n >= 10) {
+                hives.splice(hives.indexOf(h), 1);
+                log("The hive released its last bees and was taken away.");
+              }
               bugs.push({
                 x: h.x,
                 y: ground(h.x) - 24,
@@ -7473,7 +7548,7 @@
             n: "Beehive",
             ic: "🐝",
             price: 500,
-            tip: "Spawns bees that pollinate flowers all over the map in daylight",
+            tip: "Releases 10 bees in total (6 at a time) that pollinate flowers across the map, then it is removed",
             r: 16,
           },
           seed: {
@@ -7841,6 +7916,52 @@
             }
           }
         }
+        let skipLeft = 0,
+          skipAcc = 0;
+        const SKIPS = { 1: 20, 5: 30, 24: 100 },
+          SPD_COST = 50,
+          SPD_MAX = 20;
+        function buySkip(h) {
+          if (!chal) return;
+          if (skipLeft > 0) {
+            log("Already skipping time.");
+            return;
+          }
+          if (!spend(SKIPS[h])) return;
+          skipLeft = h;
+          log(
+            `Skipping ${h === 24 ? "one day" : h + " hour" + (h > 1 ? "s" : "")} for ${money(SKIPS[h])}.`,
+          );
+        }
+        function stepSkip(real) {
+          if (skipLeft <= 0) return;
+          skipAcc += real * 30;
+          let n = 0;
+          while (skipAcc >= 1 && skipLeft > 0 && n < 12) {
+            update(3600, 0.03);
+            animate(0.1);
+            skipLeft--;
+            skipAcc--;
+            n++;
+          }
+          if (skipLeft <= 0) skipAcc = 0;
+        }
+        function nextSpd() {
+          return chal.sp < 0.5 ? 0.5 : chal.sp + 0.5;
+        }
+        function buySpeed() {
+          if (!chal) return;
+          if (chal.sp >= SPD_MAX) {
+            log("Time is already at maximum speed.");
+            return;
+          }
+          if (!spend(SPD_COST)) return;
+          chal.sp = nextSpd() > SPD_MAX ? SPD_MAX : nextSpd();
+          chal.sp = Math.round(chal.sp * 10) / 10;
+          speed = chal.sp;
+          $("speedOut").textContent = chal.sp + "× 🔒";
+          log(`Time now runs at ${chal.sp}×.`);
+        }
         function sellBag() {
           if (!chal || !bag.length) return;
           const t = bag.reduce((a, b) => a + b.v, 0);
@@ -7856,9 +7977,11 @@
             owned: { hand: 1, shovel: 1 },
             goal: 100000,
             won: false,
+            sp: 0.1,
           };
           bag = [];
           speed = 0.1;
+          skipLeft = 0;
           paused = false;
           tool = "hand";
           $("speed").disabled = true;
@@ -7867,6 +7990,8 @@
           $("speed").value = 0;
           $("speedOut").textContent = "0.1× 🔒";
           $("pauseBtn").textContent = "Ⅱ Pause";
+          curSlot = null;
+          if (typeof renderSlots === "function") renderSlots();
           $("chalBtn").textContent = "Exit challenge";
           $("sellBtn").disabled = false;
           setSeedLabels();
@@ -7882,11 +8007,14 @@
           chal = null;
           bag = [];
           speed = 1;
+          skipLeft = 0;
           $("speed").disabled = false;
           $("tlBtn").disabled = false;
           $("stepBtn").disabled = false;
           $("speed").value = 1;
           $("speedOut").textContent = "1×";
+          curSlot = null;
+          if (typeof renderSlots === "function") renderSlots();
           $("chalBtn").textContent = "Start challenge";
           $("sellBtn").disabled = true;
           setSeedLabels();
@@ -7909,6 +8037,19 @@
         function uiTools() {
           const bx = $("moneyBox");
           bx.hidden = !chal;
+          $("skipBar").hidden = !chal;
+          if (chal) {
+            $("spdBtn").textContent =
+              chal.sp >= SPD_MAX
+                ? "⚡ Max speed"
+                : `⚡ ${chal.sp}× → ${Math.min(SPD_MAX, nextSpd())}× · ${money(SPD_COST)}`;
+            document.querySelectorAll("#skipBar [data-h]").forEach((b) => {
+              b.disabled = skipLeft > 0;
+              if (skipLeft > 0 && +b.dataset.h === +b.dataset.h)
+                b.title = `Skipping… ${skipLeft} h left`;
+            });
+          }
+
           if (chal) {
             const p = clamp(chal.money / chal.goal, 0, 1);
             $("moneyAmt").textContent = money(chal.money);
@@ -8045,6 +8186,383 @@
           ctx.textAlign = "center";
           ctx.fillText(T.ic, hover[0], hover[1] - Math.max(6, r) - 6);
           ctx.restore();
+        }
+
+        document
+          .querySelectorAll("#skipBar [data-h]")
+          .forEach((b) => (b.onclick = () => buySkip(+b.dataset.h)));
+        $("spdBtn").onclick = buySpeed;
+
+        /* ---------- save slots (browser localStorage) + offline catch-up ---------- */
+        const SLOTS = ["s1", "s2", "s3", "c1", "c2", "c3"],
+          SKEY = "verdant.v5.",
+          CAP_HOURS = 48 * 24 * 2;
+        let curSlot = null,
+          bgSlot = null,
+          cuLeft = 0,
+          cuTotal = 0,
+          hiddenAt = 0;
+        const slotName = (k) =>
+          (k[0] === "s" ? "Sandbox " : "Challenge ") + k[1];
+        function lsGet(k) {
+          try {
+            return localStorage.getItem(SKEY + k);
+          } catch (_) {
+            return null;
+          }
+        }
+        function lsSet(k, v) {
+          try {
+            localStorage.setItem(SKEY + k, v);
+            return true;
+          } catch (_) {
+            return false;
+          }
+        }
+        function lsDel(k) {
+          try {
+            localStorage.removeItem(SKEY + k);
+          } catch (_) {}
+        }
+        function metaOf(k) {
+          try {
+            return JSON.parse(lsGet(k + ".m"));
+          } catch (_) {
+            return null;
+          }
+        }
+        const stripV = (a) =>
+          a.map((o) => {
+            const c = Object.assign({}, o);
+            delete c.v;
+            return c;
+          });
+        function packState() {
+          return {
+            ver: 1,
+            at: Date.now(),
+            mode: chal ? "c" : "s",
+            g: {
+              time,
+              day,
+              weather,
+              weatherTimer,
+              moisture,
+              humidity,
+              temp,
+              rain,
+              wind,
+              windDir,
+              windS,
+              gust,
+              windNow,
+              light,
+              fertility,
+              clockT,
+              snowCover,
+              harvested,
+              tA,
+              tB,
+              tC,
+              camX,
+              camY,
+              zoom,
+              speed: chal ? chal.sp : speed,
+              paused,
+              lastMutLog,
+            },
+            TER,
+            ponds,
+            plants: stripV(plants),
+            seeds: stripV(seeds),
+            drops: stripV(drops),
+            fungi,
+            worms,
+            clouds,
+            animals: animals.map((a) => {
+              const c = Object.assign({}, a);
+              c.tg = null;
+              c.prey = null;
+              if (c.st === "seek" || c.st === "hunt" || c.st === "eat")
+                c.st = "wander";
+              c.meal = false;
+              return c;
+            }),
+            corpses,
+            hives,
+            feeders,
+            chal,
+            bag,
+          };
+        }
+        function applyModeUI() {
+          if (chal) {
+            $("speed").disabled = true;
+            $("tlBtn").disabled = true;
+            $("stepBtn").disabled = true;
+            $("speed").value = 0;
+            $("speedOut").textContent = chal.sp + "× 🔒";
+            $("chalBtn").textContent = "Exit challenge";
+            $("sellBtn").disabled = false;
+          } else {
+            $("speed").disabled = false;
+            $("tlBtn").disabled = false;
+            $("stepBtn").disabled = false;
+            $("speed").value = speed;
+            $("speedOut").textContent =
+              speed.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") + "×";
+            $("chalBtn").textContent = "Start challenge";
+            $("sellBtn").disabled = true;
+          }
+          $("pauseBtn").textContent = paused ? "▶ Resume" : "Ⅱ Pause";
+          setSeedLabels();
+          buildToolbar();
+          $("world").style.cursor = "";
+        }
+        function saveSlot(k, silent) {
+          if (k[0] === "c" && !chal) {
+            log(
+              "Challenge slots only hold a challenge run — start a challenge first.",
+            );
+            return false;
+          }
+          if (k[0] === "s" && chal) {
+            log(
+              "Sandbox slots hold sandbox worlds — exit the challenge first.",
+            );
+            return false;
+          }
+          const d = packState(),
+            ok = lsSet(k, JSON.stringify(d));
+          if (!ok) {
+            if (!silent)
+              log("Saving failed — browser storage is unavailable or full.");
+            return false;
+          }
+          lsSet(
+            k + ".m",
+            JSON.stringify({
+              at: d.at,
+              mode: d.mode,
+              day: day,
+              year: yearNo(),
+              plants: plants.reduce(
+                (n, p) => n + (p.state !== "dead" ? 1 : 0),
+                0,
+              ),
+              money: chal ? chal.money : null,
+            }),
+          );
+          curSlot = k;
+          if (!silent) log(`Saved to ${slotName(k)}.`);
+          renderSlots();
+          return true;
+        }
+        function loadSlot(k, offline) {
+          let d;
+          try {
+            d = JSON.parse(lsGet(k));
+          } catch (_) {
+            d = null;
+          }
+          if (!d) {
+            log("That slot is empty.");
+            return false;
+          }
+          const g = d.g;
+          ({
+            time,
+            day,
+            weather,
+            weatherTimer,
+            moisture,
+            humidity,
+            temp,
+            rain,
+            wind,
+            windDir,
+            windS,
+            gust,
+            windNow,
+            light,
+            fertility,
+            clockT,
+            snowCover,
+            harvested,
+            tA,
+            tB,
+            tC,
+            camX,
+            camY,
+            zoom,
+            paused,
+            lastMutLog,
+          } = g);
+          TER = d.TER;
+          ponds = d.ponds;
+          plants = d.plants;
+          seeds = d.seeds;
+          drops = d.drops;
+          fungi = d.fungi;
+          worms = d.worms;
+          clouds = d.clouds;
+          animals = d.animals;
+          corpses = d.corpses || [];
+          hives = d.hives || [];
+          feeders = d.feeders || [];
+          particles = [];
+          splashes = [];
+          fall = [];
+          bugs = [];
+          flies = [];
+          birds = [];
+          puffs = [];
+          wisps = [];
+          fxs = [];
+          sel = null;
+          skipLeft = 0;
+          cuLeft = 0;
+          chal = d.mode === "c" ? d.chal : null;
+          bag = d.bag || [];
+          if (chal) speed = chal.sp;
+          else speed = g.speed;
+          clampCam();
+          curSlot = k;
+          applyModeUI();
+          if (offline && !paused) {
+            const el = Math.max(0, (Date.now() - d.at) / 1000);
+            queueCatchup(el, true);
+          }
+          log(`Loaded ${slotName(k)}.`);
+          renderSlots();
+          return true;
+        }
+        function delSlot(k) {
+          lsDel(k);
+          lsDel(k + ".m");
+          if (bgSlot === k) {
+            bgSlot = null;
+            lsDel("bg");
+          }
+          if (curSlot === k) curSlot = null;
+          renderSlots();
+        }
+        function queueCatchup(sec, welcome) {
+          const sp = chal ? chal.sp : speed;
+          if (paused || sp <= 0) return;
+          const h = Math.min(CAP_HOURS, sec * sp);
+          if (h < 1) return;
+          cuLeft += h;
+          cuTotal = cuLeft;
+          if (welcome)
+            log(
+              `Welcome back! Fast-forwarding ${(h / 24).toFixed(1)} game days of the time you were away…`,
+            );
+        }
+        function stepCatchup() {
+          if (cuLeft <= 0) return;
+          const t0 = performance.now();
+          let n = 0;
+          while (cuLeft > 0 && performance.now() - t0 < 14) {
+            update(3600, 0.03);
+            if (++n % 3 === 0) animate(0.1);
+            cuLeft--;
+          }
+          if (cuLeft <= 0) {
+            cuLeft = 0;
+            log("Caught up.");
+          }
+        }
+        function drawCatchup() {
+          if (cuLeft <= 0) return;
+          const p = 1 - cuLeft / Math.max(1, cuTotal);
+          ctx.save();
+          ctx.fillStyle = "rgba(6,14,11,.72)";
+          ctx.fillRect(VW / 2 - 170, VH / 2 - 34, 340, 68);
+          ctx.strokeStyle = "rgba(245,206,112,.8)";
+          ctx.strokeRect(VW / 2 - 170, VH / 2 - 34, 340, 68);
+          ctx.fillStyle = "#f5ce70";
+          ctx.font = "600 14px system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            `⏳ Catching up… ${(cuLeft / 24).toFixed(1)} days left`,
+            VW / 2,
+            VH / 2 - 8,
+          );
+          ctx.fillStyle = "#20372e";
+          ctx.fillRect(VW / 2 - 140, VH / 2 + 8, 280, 8);
+          ctx.fillStyle = "#7ee0a0";
+          ctx.fillRect(VW / 2 - 140, VH / 2 + 8, 280 * p, 8);
+          ctx.restore();
+        }
+        function ago(t) {
+          const s = (Date.now() - t) / 1000;
+          return s < 60
+            ? "just now"
+            : s < 3600
+              ? Math.floor(s / 60) + " min ago"
+              : s < 86400
+                ? Math.floor(s / 3600) + " h ago"
+                : Math.floor(s / 86400) + " d ago";
+        }
+        function renderSlots() {
+          const el = $("slotList");
+          if (!el) return;
+          el.innerHTML = SLOTS.map((k) => {
+            const m = metaOf(k),
+              cur = curSlot === k,
+              bg = bgSlot === k;
+            const info = m
+              ? `Day ${m.day} · Year ${m.year} · ${m.plants} plants${m.money != null ? " · $" + Math.round(m.money).toLocaleString() : ""} · saved ${ago(m.at)}`
+              : "Empty";
+            return `<div class="slot${cur ? " cur" : ""}" data-k="${k}"><div><b>${slotName(k)}</b>${cur ? " ▶ current" : ""}${bg ? " · ⏻ runs offline" : ""}<small>${info}</small></div><div class="slotbtns"><button data-a="save">Save</button><button data-a="load"${m ? "" : " disabled"}>Load</button><button data-a="bg" class="${bg ? "on" : ""}"${m ? "" : " disabled"}>${bg ? "⏻ Offline ON" : "⏻ Offline"}</button><button data-a="del"${m ? "" : " disabled"}>✕</button></div></div>`;
+          }).join("");
+        }
+        function slotClick(e) {
+          const b = e.target.closest("button[data-a]");
+          if (!b) return;
+          const k = b.closest(".slot").dataset.k,
+            a = b.dataset.a;
+          if (a === "save") saveSlot(k);
+          else if (a === "load") loadSlot(k, false);
+          else if (a === "del") {
+            if (confirm("Delete " + slotName(k) + "?")) delSlot(k);
+          } else if (a === "bg") {
+            bgSlot = bgSlot === k ? null : k;
+            if (bgSlot) lsSet("bg", bgSlot);
+            else lsDel("bg");
+            if (bgSlot) {
+              log(
+                `${slotName(k)} will fast-forward by the time you are away. Keep it as the current slot so it autosaves.`,
+              );
+            }
+            renderSlots();
+          }
+        }
+        function bootSlots() {
+          bgSlot = lsGet("bg");
+          if (bgSlot && !lsGet(bgSlot)) bgSlot = null;
+          const l = $("slotList");
+          if (l) l.onclick = slotClick;
+          if (bgSlot) loadSlot(bgSlot, true);
+          else renderSlots();
+          setInterval(() => {
+            if (curSlot) saveSlot(curSlot, true);
+          }, 15000);
+          setInterval(renderSlots, 30000);
+          document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+              hiddenAt = Date.now();
+              if (curSlot) saveSlot(curSlot, true);
+            } else if (hiddenAt) {
+              if (curSlot && curSlot === bgSlot)
+                queueCatchup((Date.now() - hiddenAt) / 1000);
+              hiddenAt = 0;
+            }
+          });
+          window.addEventListener("pagehide", () => {
+            if (curSlot) saveSlot(curSlot, true);
+          });
         }
 
         /* ---------- drawing: world ---------- */
@@ -8749,6 +9267,7 @@
           );
           mm = drawMinimap();
           drawToolHover();
+          drawCatchup();
         }
         let mm = null;
 
@@ -9201,7 +9720,11 @@
         $("resetBtn").onclick = () => {
           if (chal) {
             startChallenge();
-          } else newWorld();
+          } else {
+            newWorld();
+            curSlot = null;
+            renderSlots();
+          }
           animate(0);
           draw();
           ui();
@@ -9249,8 +9772,10 @@
             camY += (mvy * 400 * real) / zoom;
             clampCam();
           }
-          if (chal) speed = 0.1;
-          const run = !paused && speed > 0;
+          if (chal) speed = chal.sp;
+          stepSkip(real);
+          stepCatchup();
+          const run = !paused && speed > 0 && skipLeft <= 0 && cuLeft <= 0;
           if (run) {
             const simS = real * 3600 * speed,
               n = Math.min(12, Math.max(1, Math.ceil(simS / 3600)));
@@ -9295,6 +9820,21 @@
             },
             get chal() {
               return chal;
+            },
+            saveSlot,
+            loadSlot,
+            delSlot,
+            get curSlot() {
+              return curSlot;
+            },
+            get cuLeft() {
+              return cuLeft;
+            },
+            queueCatchup,
+            buySkip,
+            buySpeed,
+            get skipLeft() {
+              return skipLeft;
             },
             get hives() {
               return hives;
@@ -9370,6 +9910,7 @@
         fit();
         buildToolbar();
         setSeedLabels();
+        bootSlots();
         requestAnimationFrame(frame);
         if (typeof ResizeObserver !== "undefined")
           new ResizeObserver(fit).observe(canvas);
